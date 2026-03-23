@@ -1401,6 +1401,7 @@ mod tests {
     /// Integration test: spin up a mock Anthropic API server, call chat_with_tools
     /// with a multi-turn conversation + tools, and verify the request body contains
     /// ALL conversation turns and native tool definitions.
+    #[cfg(feature = "gateway")]
     #[tokio::test]
     async fn chat_with_tools_sends_full_history_and_native_tools() {
         use axum::{routing::post, Json, Router};

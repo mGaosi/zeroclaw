@@ -62,6 +62,7 @@ pub async fn run(config: Config, host: String, port: u16) -> Result<()> {
 
     let mut handles: Vec<JoinHandle<()>> = vec![spawn_state_writer(config.clone())];
 
+    #[cfg(feature = "gateway")]
     {
         let gateway_cfg = config.clone();
         let gateway_host = host.clone();

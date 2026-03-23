@@ -11108,6 +11108,7 @@ allowed_users = ["@ops:matrix.org"]
             qq: None,
             twitter: None,
             mochat: None,
+            #[cfg(feature = "channel-nostr")]
             nostr: None,
             clawdtalk: None,
             reddit: None,
@@ -11431,6 +11432,7 @@ channel_id = "C123"
             qq: None,
             twitter: None,
             mochat: None,
+            #[cfg(feature = "channel-nostr")]
             nostr: None,
             clawdtalk: None,
             reddit: None,

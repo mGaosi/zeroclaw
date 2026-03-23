@@ -311,6 +311,11 @@ impl Agent {
         self.memory_session_id = session_id;
     }
 
+    /// Replace the agent's observer (used to wire in the callback registry).
+    pub fn set_observer(&mut self, observer: Arc<dyn Observer>) {
+        self.observer = observer;
+    }
+
     /// Hydrate the agent with prior chat messages (e.g. from a session backend).
     ///
     /// Ensures a system prompt is prepended if history is empty, then appends all
@@ -798,6 +803,219 @@ impl Agent {
         )
     }
 
+    /// Streaming version of `turn()` — emits `StreamEvent` items to the sender
+    /// as the agent processes the user message through the tool loop.
+    pub async fn turn_streaming(
+        &mut self,
+        user_message: &str,
+        tx: tokio::sync::mpsc::Sender<crate::api::types::StreamEvent>,
+        cancel_token: tokio_util::sync::CancellationToken,
+        observer_registry: std::sync::Arc<crate::api::observer::ObserverCallbackRegistry>,
+    ) -> Result<()> {
+        use crate::api::types::StreamEvent;
+
+        let _ = &observer_registry; // Will be wired for observer events in Phase 8
+
+        // Bootstrap system prompt on first turn (same as turn())
+        if self.history.is_empty() {
+            let system_prompt = self.build_system_prompt()?;
+            self.history
+                .push(ConversationMessage::Chat(ChatMessage::system(
+                    system_prompt,
+                )));
+        }
+
+        // Memory auto-save
+        if self.auto_save {
+            let _ = self
+                .memory
+                .store(
+                    "user_msg",
+                    user_message,
+                    MemoryCategory::Conversation,
+                    self.memory_session_id.as_deref(),
+                )
+                .await;
+        }
+
+        // Load memory context and enrich message (same as turn())
+        let context = self
+            .memory_loader
+            .load_context(
+                self.memory.as_ref(),
+                user_message,
+                self.memory_session_id.as_deref(),
+            )
+            .await
+            .unwrap_or_default();
+
+        let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S %Z");
+        let enriched = if context.is_empty() {
+            format!("[{now}] {user_message}")
+        } else {
+            format!("{context}[{now}] {user_message}")
+        };
+
+        self.history
+            .push(ConversationMessage::Chat(ChatMessage::user(enriched)));
+
+        let effective_model = self.classify_model(user_message);
+
+        let mut full_response = String::new();
+
+        for _iteration in 0..self.config.max_tool_iterations {
+            // Check cancellation
+            if cancel_token.is_cancelled() {
+                let _ = tx
+                    .send(StreamEvent::Error {
+                        message: "cancelled".into(),
+                    })
+                    .await;
+                return Ok(());
+            }
+
+            let messages = self.tool_dispatcher.to_provider_messages(&self.history);
+
+            self.observer.record_event(&ObserverEvent::LlmRequest {
+                provider: "library".into(),
+                model: effective_model.clone(),
+                messages_count: messages.len(),
+            });
+
+            // T041: Uses chat() since tool dispatch requires structured responses.
+            // Provider-level streaming (stream_chat_with_history) will be integrated
+            // when the streaming pipeline supports tool call parsing.
+            let response = self
+                .provider
+                .chat(
+                    ChatRequest {
+                        messages: &messages,
+                        tools: if self.tool_dispatcher.should_send_tool_specs() {
+                            Some(&self.tool_specs)
+                        } else {
+                            None
+                        },
+                    },
+                    &effective_model,
+                    self.temperature,
+                )
+                .await?;
+
+            let (text, calls) = self.tool_dispatcher.parse_response(&response);
+
+            // Emit text chunks
+            let response_text = if text.is_empty() {
+                response.text.clone().unwrap_or_default()
+            } else {
+                text.clone()
+            };
+
+            if !response_text.is_empty() {
+                full_response.push_str(&response_text);
+                if tx
+                    .send(StreamEvent::Chunk {
+                        delta: response_text.clone(),
+                    })
+                    .await
+                    .is_err()
+                {
+                    // Consumer dropped — abort cleanly
+                    tracing::warn!("Stream consumer dropped, aborting turn");
+                    return Ok(());
+                }
+            }
+
+            if calls.is_empty() {
+                // No tool calls — we're done
+                self.history
+                    .push(ConversationMessage::Chat(ChatMessage::assistant(
+                        full_response.clone(),
+                    )));
+                self.trim_history();
+
+                let _ = tx
+                    .send(StreamEvent::Done {
+                        full_response: full_response.clone(),
+                    })
+                    .await;
+                return Ok(());
+            }
+
+            // Process tool calls
+            if !text.is_empty() {
+                self.history
+                    .push(ConversationMessage::Chat(ChatMessage::assistant(
+                        text.clone(),
+                    )));
+            }
+
+            self.history.push(ConversationMessage::AssistantToolCalls {
+                text: response.text.clone(),
+                tool_calls: response.tool_calls.clone(),
+                reasoning_content: response.reasoning_content.clone(),
+            });
+
+            for call in &calls {
+                // Emit ToolCall event
+                let args_str = call.arguments.to_string();
+
+                if tx
+                    .send(StreamEvent::ToolCall {
+                        tool: call.name.clone(),
+                        arguments: args_str,
+                    })
+                    .await
+                    .is_err()
+                {
+                    tracing::warn!("Stream consumer dropped during tool call, aborting");
+                    return Ok(());
+                }
+            }
+
+            // Check cancellation before tool execution
+            if cancel_token.is_cancelled() {
+                let _ = tx
+                    .send(StreamEvent::Error {
+                        message: "cancelled".into(),
+                    })
+                    .await;
+                return Ok(());
+            }
+
+            let results = self.execute_tools(&calls).await;
+
+            // Emit ToolResult events
+            for result in &results {
+                if tx
+                    .send(StreamEvent::ToolResult {
+                        tool: result.name.clone(),
+                        output: result.output.clone(),
+                        success: result.success,
+                    })
+                    .await
+                    .is_err()
+                {
+                    tracing::warn!("Stream consumer dropped during tool result, aborting");
+                    return Ok(());
+                }
+            }
+
+            let formatted = self.tool_dispatcher.format_results(&results);
+            self.history.push(formatted);
+            self.trim_history();
+        }
+
+        let _ = tx
+            .send(StreamEvent::Error {
+                message: format!(
+                    "exceeded maximum tool iterations ({})",
+                    self.config.max_tool_iterations
+                ),
+            })
+            .await;
+        Ok(())
+    }
+
     pub async fn run_single(&mut self, message: &str) -> Result<String> {
         self.turn(message).await
     }
@@ -1127,6 +1345,7 @@ mod tests {
         assert_eq!(seen.as_slice(), &["hint:fast".to_string()]);
     }
 
+    #[cfg(feature = "gateway")]
     #[tokio::test]
     async fn from_config_passes_extra_headers_to_custom_provider() {
         use axum::{http::HeaderMap, routing::post, Json, Router};
@@ -1323,5 +1542,225 @@ mod tests {
             matches!(&history[2], ConversationMessage::Chat(m) if m.role == "assistant" && m.content == "hi there")
         );
         assert_eq!(history.len(), 3);
+    }
+
+    // ── T056: Streaming produces Chunk→Done for simple text response ──
+
+    #[tokio::test]
+    async fn turn_streaming_emits_chunk_and_done() {
+        let provider = Box::new(MockProvider {
+            responses: Mutex::new(vec![crate::providers::ChatResponse {
+                text: Some("streamed hello".into()),
+                tool_calls: vec![],
+                usage: None,
+                reasoning_content: None,
+            }]),
+        });
+
+        let memory_cfg = crate::config::MemoryConfig {
+            backend: "none".into(),
+            ..crate::config::MemoryConfig::default()
+        };
+        let mem: Arc<dyn Memory> = Arc::from(
+            crate::memory::create_memory(&memory_cfg, std::path::Path::new("/tmp"), None)
+                .expect("memory"),
+        );
+        let observer: Arc<dyn Observer> = Arc::from(crate::observability::NoopObserver {});
+        let mut agent = Agent::builder()
+            .provider(provider)
+            .tools(vec![])
+            .memory(mem)
+            .observer(observer)
+            .tool_dispatcher(Box::new(XmlToolDispatcher))
+            .workspace_dir(std::path::PathBuf::from("/tmp"))
+            .build()
+            .expect("build");
+
+        let (tx, mut rx) = tokio::sync::mpsc::channel(32);
+        let cancel = tokio_util::sync::CancellationToken::new();
+        let registry = Arc::new(crate::api::observer::ObserverCallbackRegistry::new());
+
+        agent
+            .turn_streaming("hi", tx, cancel, registry)
+            .await
+            .unwrap();
+
+        let mut events = vec![];
+        while let Ok(ev) = rx.try_recv() {
+            events.push(ev);
+        }
+
+        assert!(events.len() >= 2, "expected at least Chunk + Done");
+        assert!(
+            matches!(&events[0], crate::api::types::StreamEvent::Chunk { delta } if delta == "streamed hello")
+        );
+        assert!(
+            matches!(&events[events.len() - 1], crate::api::types::StreamEvent::Done { full_response } if full_response == "streamed hello")
+        );
+    }
+
+    // ── T057: Cancellation emits Error event ──
+
+    #[tokio::test]
+    async fn turn_streaming_cancelled_emits_error() {
+        let provider = Box::new(MockProvider {
+            responses: Mutex::new(vec![]),
+        });
+
+        let memory_cfg = crate::config::MemoryConfig {
+            backend: "none".into(),
+            ..crate::config::MemoryConfig::default()
+        };
+        let mem: Arc<dyn Memory> = Arc::from(
+            crate::memory::create_memory(&memory_cfg, std::path::Path::new("/tmp"), None)
+                .expect("memory"),
+        );
+        let observer: Arc<dyn Observer> = Arc::from(crate::observability::NoopObserver {});
+        let mut agent = Agent::builder()
+            .provider(provider)
+            .tools(vec![])
+            .memory(mem)
+            .observer(observer)
+            .tool_dispatcher(Box::new(XmlToolDispatcher))
+            .workspace_dir(std::path::PathBuf::from("/tmp"))
+            .build()
+            .expect("build");
+
+        let (tx, mut rx) = tokio::sync::mpsc::channel(32);
+        let cancel = tokio_util::sync::CancellationToken::new();
+        cancel.cancel(); // Cancel before starting
+        let registry = Arc::new(crate::api::observer::ObserverCallbackRegistry::new());
+
+        agent
+            .turn_streaming("hi", tx, cancel, registry)
+            .await
+            .unwrap();
+
+        let mut events = vec![];
+        while let Ok(ev) = rx.try_recv() {
+            events.push(ev);
+        }
+
+        assert!(!events.is_empty(), "expected at least one event");
+        assert!(
+            matches!(&events[0], crate::api::types::StreamEvent::Error { message } if message == "cancelled")
+        );
+    }
+
+    // ── T065: Rich streaming with tool calls ──
+
+    #[tokio::test]
+    async fn turn_streaming_emits_tool_call_and_result_events() {
+        let provider = Box::new(MockProvider {
+            responses: Mutex::new(vec![
+                crate::providers::ChatResponse {
+                    text: Some(String::new()),
+                    tool_calls: vec![crate::providers::ToolCall {
+                        id: "tc1".into(),
+                        name: "echo".into(),
+                        arguments: "{}".into(),
+                    }],
+                    usage: None,
+                    reasoning_content: None,
+                },
+                crate::providers::ChatResponse {
+                    text: Some("final answer".into()),
+                    tool_calls: vec![],
+                    usage: None,
+                    reasoning_content: None,
+                },
+            ]),
+        });
+
+        let memory_cfg = crate::config::MemoryConfig {
+            backend: "none".into(),
+            ..crate::config::MemoryConfig::default()
+        };
+        let mem: Arc<dyn Memory> = Arc::from(
+            crate::memory::create_memory(&memory_cfg, std::path::Path::new("/tmp"), None)
+                .expect("memory"),
+        );
+        let observer: Arc<dyn Observer> = Arc::from(crate::observability::NoopObserver {});
+        let mut agent = Agent::builder()
+            .provider(provider)
+            .tools(vec![Box::new(MockTool)])
+            .memory(mem)
+            .observer(observer)
+            .tool_dispatcher(Box::new(NativeToolDispatcher))
+            .workspace_dir(std::path::PathBuf::from("/tmp"))
+            .build()
+            .expect("build");
+
+        let (tx, mut rx) = tokio::sync::mpsc::channel(64);
+        let cancel = tokio_util::sync::CancellationToken::new();
+        let registry = Arc::new(crate::api::observer::ObserverCallbackRegistry::new());
+
+        agent
+            .turn_streaming("run echo", tx, cancel, registry)
+            .await
+            .unwrap();
+
+        let mut events = vec![];
+        while let Ok(ev) = rx.try_recv() {
+            events.push(ev);
+        }
+
+        // Expect: ToolCall → ToolResult → Chunk → Done
+        let has_tool_call = events
+            .iter()
+            .any(|e| matches!(e, crate::api::types::StreamEvent::ToolCall { tool, .. } if tool == "echo"));
+        let has_tool_result = events
+            .iter()
+            .any(|e| matches!(e, crate::api::types::StreamEvent::ToolResult { tool, success, .. } if tool == "echo" && *success));
+        let has_done = events
+            .iter()
+            .any(|e| matches!(e, crate::api::types::StreamEvent::Done { .. }));
+
+        assert!(has_tool_call, "missing ToolCall event: {events:?}");
+        assert!(has_tool_result, "missing ToolResult event: {events:?}");
+        assert!(has_done, "missing Done event: {events:?}");
+    }
+
+    // ── T066: Consumer drop doesn't panic ──
+
+    #[tokio::test]
+    async fn turn_streaming_consumer_drop_aborts_cleanly() {
+        let provider = Box::new(MockProvider {
+            responses: Mutex::new(vec![crate::providers::ChatResponse {
+                text: Some("hello".into()),
+                tool_calls: vec![],
+                usage: None,
+                reasoning_content: None,
+            }]),
+        });
+
+        let memory_cfg = crate::config::MemoryConfig {
+            backend: "none".into(),
+            ..crate::config::MemoryConfig::default()
+        };
+        let mem: Arc<dyn Memory> = Arc::from(
+            crate::memory::create_memory(&memory_cfg, std::path::Path::new("/tmp"), None)
+                .expect("memory"),
+        );
+        let observer: Arc<dyn Observer> = Arc::from(crate::observability::NoopObserver {});
+        let mut agent = Agent::builder()
+            .provider(provider)
+            .tools(vec![])
+            .memory(mem)
+            .observer(observer)
+            .tool_dispatcher(Box::new(XmlToolDispatcher))
+            .workspace_dir(std::path::PathBuf::from("/tmp"))
+            .build()
+            .expect("build");
+
+        // Create channel and immediately drop the receiver
+        let (tx, rx) = tokio::sync::mpsc::channel(1);
+        drop(rx);
+        let cancel = tokio_util::sync::CancellationToken::new();
+        let registry = Arc::new(crate::api::observer::ObserverCallbackRegistry::new());
+
+        // Should not panic
+        let result = agent.turn_streaming("hi", tx, cancel, registry).await;
+        assert!(result.is_ok());
     }
 }

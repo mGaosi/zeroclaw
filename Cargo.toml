@@ -165,14 +165,14 @@ mail-parser = "0.11.2"
 async-imap = { version = "0.11",features = ["runtime-tokio"], default-features = false }
 
 # HTTP server (gateway) — replaces raw TCP for proper HTTP/1.1 compliance
-axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio", "query", "ws", "macros"] }
-tower = { version = "0.5", default-features = false }
-tower-http = { version = "0.6", default-features = false, features = ["limit", "timeout"] }
-http-body-util = "0.1"
+axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio", "query", "ws", "macros"], optional = true }
+tower = { version = "0.5", default-features = false, optional = true }
+tower-http = { version = "0.6", default-features = false, features = ["limit", "timeout"], optional = true }
+http-body-util = { version = "0.1", optional = true }
 
 # Embed frontend assets into binary (web dashboard)
-rust-embed = "8"
-mime_guess = "2"
+rust-embed = { version = "8", optional = true }
+mime_guess = { version = "2", optional = true }
 
 # OpenTelemetry — OTLP trace + metrics export.
 # Use the blocking HTTP exporter client to avoid Tokio-reactor panics in
@@ -224,7 +224,8 @@ landlock = { version = "0.4", optional = true }
 libc = "0.2"
 
 [features]
-default = ["observability-prometheus", "channel-nostr", "skill-creation"]
+default = ["observability-prometheus", "channel-nostr", "skill-creation", "gateway"]
+gateway = ["dep:axum", "dep:tower", "dep:tower-http", "dep:http-body-util", "dep:rust-embed", "dep:mime_guess"]
 channel-nostr = ["dep:nostr-sdk"]
 hardware = ["nusb", "tokio-serial"]
 channel-matrix = ["dep:matrix-sdk"]

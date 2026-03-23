@@ -2,6 +2,8 @@
 //! through the existing tool registry and agent loop.
 //!
 //! Tool names are prefixed with the node ID: `node:<node_id>:<capability_name>`.
+//!
+//! Requires the `gateway` feature flag.
 
 use std::sync::Arc;
 

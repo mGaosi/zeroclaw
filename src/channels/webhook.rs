@@ -143,6 +143,7 @@ impl Channel for WebhookChannel {
         Ok(())
     }
 
+    #[cfg(feature = "gateway")]
     async fn listen(&self, tx: tokio::sync::mpsc::Sender<ChannelMessage>) -> Result<()> {
         use axum::{
             body::Bytes,
@@ -264,6 +265,11 @@ impl Channel for WebhookChannel {
             .map_err(|e| anyhow::anyhow!("Webhook server error: {e}"))?;
 
         Ok(())
+    }
+
+    #[cfg(not(feature = "gateway"))]
+    async fn listen(&self, _tx: tokio::sync::mpsc::Sender<ChannelMessage>) -> Result<()> {
+        bail!("Webhook listen requires the `gateway` feature (axum HTTP server)")
     }
 
     async fn health_check(&self) -> bool {
