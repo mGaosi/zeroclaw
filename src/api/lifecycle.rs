@@ -38,7 +38,7 @@ pub struct AgentHandle {
     config_manager: Arc<RuntimeConfigManager>,
     observer_registry: Arc<ObserverCallbackRegistry>,
     cancel_token: CancellationToken,
-    config_rx: Mutex<tokio::sync::watch::Receiver<crate::config::Config>>,
+    config_rx: Arc<Mutex<tokio::sync::watch::Receiver<crate::config::Config>>>,
     initialized: bool,
 }
 
@@ -49,28 +49,35 @@ impl AgentHandle {
     }
 
     /// Get a reference to the agent.
-    pub fn agent(&self) -> Arc<Mutex<Agent>> {
+    pub(crate) fn agent(&self) -> Arc<Mutex<Agent>> {
         self.agent.clone()
     }
 
     /// Get a reference to the config manager.
-    pub fn config_manager(&self) -> Arc<RuntimeConfigManager> {
+    pub(crate) fn config_manager(&self) -> Arc<RuntimeConfigManager> {
         self.config_manager.clone()
     }
 
     /// Get a reference to the observer registry.
-    pub fn observer_registry(&self) -> Arc<ObserverCallbackRegistry> {
+    pub(crate) fn observer_registry(&self) -> Arc<ObserverCallbackRegistry> {
         self.observer_registry.clone()
     }
 
     /// Get the cancellation token.
-    pub fn cancel_token(&self) -> CancellationToken {
+    pub(crate) fn cancel_token(&self) -> CancellationToken {
         self.cancel_token.clone()
     }
 
     /// Cancel any in-flight processing and reset the token for next use.
     pub fn cancel_and_reset(&self) {
         self.cancel_token.cancel();
+    }
+
+    /// Get a reference to the config watch receiver for change detection.
+    pub(crate) fn config_rx(
+        &self,
+    ) -> Arc<Mutex<tokio::sync::watch::Receiver<crate::config::Config>>> {
+        self.config_rx.clone()
     }
 
     /// Check if config has changed since last call. Returns true if a rebuild is needed.
@@ -123,9 +130,11 @@ pub async fn init(
     }
 
     // Build the agent
-    let mut agent = Agent::from_config(&config).map_err(|e| ApiError::Internal {
-        message: format!("failed to build agent: {e}"),
-    })?;
+    let mut agent = Agent::from_config(&config)
+        .await
+        .map_err(|e| ApiError::Internal {
+            message: format!("failed to build agent: {e}"),
+        })?;
 
     let observer_registry = Arc::new(ObserverCallbackRegistry::new());
 
@@ -151,7 +160,7 @@ pub async fn init(
         config_manager,
         observer_registry,
         cancel_token,
-        config_rx: Mutex::new(config_rx),
+        config_rx: Arc::new(Mutex::new(config_rx)),
         initialized: true,
     })
 }
