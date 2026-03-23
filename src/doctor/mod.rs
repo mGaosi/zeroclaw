@@ -494,11 +494,14 @@ fn check_config_semantics(config: &Config, items: &mut Vec<DiagItem>) {
     }
 
     // Gateway port range
-    let port = config.gateway.port;
-    if port > 0 {
-        items.push(DiagItem::ok(cat, format!("gateway port: {port}")));
-    } else {
-        items.push(DiagItem::error(cat, "gateway port is 0 (invalid)"));
+    #[cfg(feature = "gateway")]
+    {
+        let port = config.gateway.port;
+        if port > 0 {
+            items.push(DiagItem::ok(cat, format!("gateway port: {port}")));
+        } else {
+            items.push(DiagItem::error(cat, "gateway port is 0 (invalid)"));
+        }
     }
 
     // Reliability: fallback providers

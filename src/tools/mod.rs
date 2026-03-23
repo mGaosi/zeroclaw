@@ -66,6 +66,7 @@ pub mod memory_store;
 pub mod microsoft365;
 pub mod model_routing_config;
 pub mod model_switch;
+#[cfg(feature = "gateway")]
 pub mod node_tool;
 pub mod notion_tool;
 pub mod pdf_read;
@@ -142,6 +143,7 @@ pub use memory_store::MemoryStoreTool;
 pub use microsoft365::Microsoft365Tool;
 pub use model_routing_config::ModelRoutingConfigTool;
 pub use model_switch::ModelSwitchTool;
+#[cfg(feature = "gateway")]
 #[allow(unused_imports)]
 pub use node_tool::NodeTool;
 pub use notion_tool::NotionTool;

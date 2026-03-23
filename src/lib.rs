@@ -39,6 +39,7 @@ use clap::Subcommand;
 use serde::{Deserialize, Serialize};
 
 pub mod agent;
+pub mod api;
 pub(crate) mod approval;
 pub(crate) mod auth;
 pub mod channels;
@@ -49,6 +50,7 @@ pub(crate) mod cost;
 pub(crate) mod cron;
 pub(crate) mod daemon;
 pub(crate) mod doctor;
+#[cfg(feature = "gateway")]
 pub mod gateway;
 pub mod hands;
 pub(crate) mod hardware;
@@ -82,6 +84,7 @@ pub mod plugins;
 pub use config::Config;
 
 /// Gateway management subcommands
+#[cfg(feature = "gateway")]
 #[derive(Subcommand, Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum GatewayCommands {
     /// Start the gateway server (default if no subcommand specified)

@@ -1,22 +1,40 @@
 {
-  "git.autofetch": true,
-  "git.autofetchPeriod": 90,
-  "search.exclude": {
-    "**/target": true
-  },
-  "files.watcherExclude": {
-    "**/target/**": true
-  },
-  "[rust]": {
-    "editor.defaultFormatter": "rust-lang.rust-analyzer"
-  },
-  "editor.formatOnSave": true,
-  "editor.formatOnPaste": true,
-  "files.autoSave": "afterDelay",
-  "files.autoSaveDelay": 1000,
-  "rust-analyzer.check.command": "clippy",
-  "rust-analyzer.check.extraArgs": ["--all-targets", "--", "-D", "warnings"],
-  "window.title": "${activeRepositoryBranchName}",
-  "coverage-gutters.coverageFileNames": ["lcov.info"],
-  "git.postCommitCommand": "push"
+    "git.autofetch": true,
+    "git.autofetchPeriod": 90,
+    "search.exclude": {
+        "**/target": true
+    },
+    "files.watcherExclude": {
+        "**/target/**": true
+    },
+    "[rust]": {
+        "editor.defaultFormatter": "rust-lang.rust-analyzer"
+    },
+    "editor.formatOnSave": true,
+    "editor.formatOnPaste": true,
+    "files.autoSave": "afterDelay",
+    "files.autoSaveDelay": 1000,
+    "rust-analyzer.check.command": "clippy",
+    "rust-analyzer.check.extraArgs": [
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+    ],
+    "window.title": "${activeRepositoryBranchName}",
+    "coverage-gutters.coverageFileNames": [
+        "lcov.info"
+    ],
+    "git.postCommitCommand": "push",
+    "chat.promptFilesRecommendations": {
+        "speckit.constitution": true,
+        "speckit.specify": true,
+        "speckit.plan": true,
+        "speckit.tasks": true,
+        "speckit.implement": true
+    },
+    "chat.tools.terminal.autoApprove": {
+        ".specify/scripts/bash/": true,
+        ".specify/scripts/powershell/": true
+    }
 }

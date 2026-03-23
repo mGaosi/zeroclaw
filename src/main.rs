@@ -72,6 +72,8 @@ fn pause_after_no_command_help() {
 }
 
 mod agent;
+#[allow(unused_imports, dead_code)]
+mod api;
 mod approval;
 mod auth;
 mod channels;
@@ -85,6 +87,7 @@ mod cost;
 mod cron;
 mod daemon;
 mod doctor;
+#[cfg(feature = "gateway")]
 mod gateway;
 mod hardware;
 mod health;
@@ -115,9 +118,11 @@ mod verifiable_intent;
 use config::Config;
 
 // Re-export so binary modules can use crate::<CommandEnum> while keeping a single source of truth.
+#[cfg(feature = "gateway")]
+pub use zeroclaw::GatewayCommands;
 pub use zeroclaw::{
-    ChannelCommands, CronCommands, GatewayCommands, HardwareCommands, IntegrationCommands,
-    MigrateCommands, PeripheralCommands, ServiceCommands, SkillCommands,
+    ChannelCommands, CronCommands, HardwareCommands, IntegrationCommands, MigrateCommands,
+    PeripheralCommands, ServiceCommands, SkillCommands,
 };
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum)]
@@ -230,6 +235,7 @@ Examples:
     },
 
     /// Start/manage the gateway server (webhooks, websockets)
+    #[cfg(feature = "gateway")]
     #[command(long_about = "\
 Manage the gateway server (webhooks, websockets).
 
@@ -966,6 +972,7 @@ async fn main() -> Result<()> {
             .map(|_| ())
         }
 
+        #[cfg(feature = "gateway")]
         Commands::Gateway { gateway_command } => {
             match gateway_command {
                 Some(zeroclaw::GatewayCommands::Restart { port, host }) => {
@@ -1610,6 +1617,7 @@ fn write_shell_completion<W: Write>(shell: CompletionShell, writer: &mut W) -> R
 
 // ─── Gateway helper functions ───────────────────────────────────────────────
 
+#[cfg(feature = "gateway")]
 /// Resolve gateway host and port from CLI args or config.
 fn resolve_gateway_addr(config: &Config, port: Option<u16>, host: Option<String>) -> (u16, String) {
     let port = port.unwrap_or(config.gateway.port);
@@ -1617,6 +1625,7 @@ fn resolve_gateway_addr(config: &Config, port: Option<u16>, host: Option<String>
     (port, host)
 }
 
+#[cfg(feature = "gateway")]
 /// Log gateway startup message.
 fn log_gateway_start(host: &str, port: u16) {
     if port == 0 {
@@ -1626,6 +1635,7 @@ fn log_gateway_start(host: &str, port: u16) {
     }
 }
 
+#[cfg(feature = "gateway")]
 /// Gracefully shutdown a running gateway via the admin endpoint.
 async fn shutdown_gateway(host: &str, port: u16) -> Result<()> {
     let url = format!("http://{host}:{port}/admin/shutdown");
@@ -1646,6 +1656,7 @@ async fn shutdown_gateway(host: &str, port: u16) -> Result<()> {
     }
 }
 
+#[cfg(feature = "gateway")]
 /// Fetch the current pairing code from a running gateway.
 /// If `new` is true, generates a fresh pairing code via POST request.
 async fn fetch_paircode(host: &str, port: u16, new: bool) -> Result<Option<String>> {

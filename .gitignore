@@ -8,6 +8,8 @@ web/dist/*
 .DS_Store
 ._*
 .wt-pr37/
+build-output.txt
+ndc-check.txt
 __pycache__/
 *.pyc
 docker-compose.override.yml
