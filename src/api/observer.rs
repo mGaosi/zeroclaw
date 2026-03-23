@@ -84,6 +84,33 @@ pub fn unregister_observer(
     Ok(())
 }
 
+// ── FRB StreamSink wrappers ──────────────────────────────────────
+
+/// FRB-compatible observer registration: accepts a `StreamSink<ObserverEventDto>`
+/// that FRB translates into a Dart `Stream<ObserverEventDto>`.
+///
+/// Internally bridges to `register_observer()` via an `mpsc::unbounded_channel`,
+/// forwarding events from the channel into the sink.
+/// Returns the observer ID for later unregistration.
+#[cfg(feature = "frb")]
+pub fn register_observer_stream(
+    handle: &crate::api::lifecycle::AgentHandle,
+    sink: flutter_rust_bridge::StreamSink<ObserverEventDto>,
+) -> Result<u64, crate::api::types::ApiError> {
+    let (tx, mut rx) = mpsc::unbounded_channel::<ObserverEventDto>();
+    let id = register_observer(handle, tx)?;
+
+    tokio::spawn(async move {
+        while let Some(event) = rx.recv().await {
+            if sink.add(event).is_err() {
+                break;
+            }
+        }
+    });
+
+    Ok(id)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

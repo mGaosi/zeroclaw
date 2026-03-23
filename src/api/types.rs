@@ -130,6 +130,9 @@ impl ConfigPatch {
         if let Some(t) = self.temperature {
             config.default_temperature = t;
         }
+        if let Some(ref prompt) = self.system_prompt {
+            config.system_prompt = Some(prompt.clone());
+        }
         if let Some(max) = self.max_tool_iterations {
             config.agent.max_tool_iterations = max;
         }

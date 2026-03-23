@@ -94,6 +94,12 @@ pub struct Config {
     )]
     pub default_temperature: f64,
 
+    /// Custom system prompt override. When set, this text is prepended to
+    /// the assembled system prompt. Useful for mobile/library integrations
+    /// that inject persona or instructions at runtime via `ConfigPatch`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub system_prompt: Option<String>,
+
     /// HTTP request timeout in seconds for LLM provider API calls. Default: `120`.
     ///
     /// Increase for slower backends (e.g., llama.cpp on constrained hardware)
@@ -7129,6 +7135,7 @@ impl Default for Config {
             default_model: Some("anthropic/claude-sonnet-4.6".to_string()),
             model_providers: HashMap::new(),
             default_temperature: default_temperature(),
+            system_prompt: None,
             provider_timeout_secs: default_provider_timeout_secs(),
             extra_headers: HashMap::new(),
             observability: ObservabilityConfig::default(),
@@ -10037,6 +10044,7 @@ default_temperature = 0.7
             default_model: Some("gpt-4o".into()),
             model_providers: HashMap::new(),
             default_temperature: 0.5,
+            system_prompt: None,
             provider_timeout_secs: 120,
             extra_headers: HashMap::new(),
             observability: ObservabilityConfig {
@@ -10294,7 +10302,7 @@ auto_approve = ["my_custom_tool", "another_tool"]
             "web_fetch",
         ] {
             assert!(
-                parsed.autonomy.auto_approve.contains(&default_tool.to_string()),
+                parsed.autonomy.auto_approve.contains(&(*default_tool).to_string()),
                 "default tool '{default_tool}' must be present in auto_approve even when user provides custom list"
             );
         }
@@ -10629,6 +10637,7 @@ default_temperature = 0.7
             default_model: Some("test-model".into()),
             model_providers: HashMap::new(),
             default_temperature: 0.9,
+            system_prompt: None,
             provider_timeout_secs: 120,
             extra_headers: HashMap::new(),
             observability: ObservabilityConfig::default(),
