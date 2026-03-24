@@ -1,5 +1,6 @@
 #![allow(dead_code, unused_imports)]
 
+pub mod api_helpers;
 pub mod assertions;
 pub mod helpers;
 pub mod mock_channel;

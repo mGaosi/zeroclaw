@@ -814,7 +814,11 @@ impl Agent {
     ) -> Result<()> {
         use crate::api::types::StreamEvent;
 
-        let _ = &observer_registry; // Will be wired for observer events in Phase 8
+        // Wire observer_registry to receive events during this turn
+        observer_registry.record_event(&ObserverEvent::AgentStart {
+            provider: "library".into(),
+            model: String::new(),
+        });
 
         // Bootstrap system prompt on first turn (same as turn())
         if self.history.is_empty() {
@@ -882,6 +886,12 @@ impl Agent {
                 messages_count: messages.len(),
             });
 
+            observer_registry.record_event(&ObserverEvent::LlmRequest {
+                provider: "library".into(),
+                model: effective_model.clone(),
+                messages_count: messages.len(),
+            });
+
             // T041: Uses chat() since tool dispatch requires structured responses.
             // Provider-level streaming (stream_chat_with_history) will be integrated
             // when the streaming pipeline supports tool call parsing.
@@ -932,6 +942,8 @@ impl Agent {
                         full_response.clone(),
                     )));
                 self.trim_history();
+
+                observer_registry.record_event(&ObserverEvent::TurnComplete);
 
                 let _ = tx
                     .send(StreamEvent::Done {

@@ -251,6 +251,13 @@ Examples:
         gateway_command: Option<zeroclaw::GatewayCommands>,
     },
 
+    /// Gateway feature is not available in this build
+    #[cfg(not(feature = "gateway"))]
+    #[command(
+        long_about = "The gateway feature is not available in this build.\n\nRecompile with `--features gateway` to enable the HTTP/WebSocket gateway."
+    )]
+    Gateway {},
+
     /// Start long-running autonomous runtime (gateway + channels + heartbeat + scheduler)
     #[command(long_about = "\
 Start the long-running autonomous daemon.
@@ -970,6 +977,12 @@ async fn main() -> Result<()> {
             ))
             .await
             .map(|_| ())
+        }
+
+        #[cfg(not(feature = "gateway"))]
+        Commands::Gateway {} => {
+            eprintln!("Gateway feature is not available in this build. Recompile with `--features gateway` to enable.");
+            return Ok(());
         }
 
         #[cfg(feature = "gateway")]

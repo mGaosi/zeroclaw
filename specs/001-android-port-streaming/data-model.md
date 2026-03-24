@@ -91,6 +91,8 @@ pub struct AgentHandle {
 
 **Lifecycle**: Created once at startup. Dropped when the host app releases the handle. Not cloneable by the host — only one handle per instance.
 
+**Concurrency**: Conversations are serial within a single handle — `Arc<Mutex<Agent>>` serializes concurrent `send_message()` calls (R-007). For parallel conversations, create separate `AgentHandle` instances.
+
 ---
 
 ### RuntimeConfigManager
@@ -128,7 +130,7 @@ pub struct RuntimeConfigManager {
 | ------------------------ | ------------- | ------------------------- | ----------------------------------------------------------------------- |
 | `get_config()`           | —             | `Config` (clone)          | None                                                                    |
 | `update_config(partial)` | `ConfigPatch` | `Result<(), ConfigError>` | Validates → merges → saves to disk (if path set) → notifies subscribers |
-| `reload_from_file()`     | —             | `Result<(), ConfigError>` | Re-reads TOML → validates → merges → notifies subscribers               |
+| `reload_from_file()`     | —             | `Result<(), ConfigError>` | Re-reads TOML → validates → **merges** (file values overwrite matching fields; absent fields retain in-memory values per R-008) → notifies subscribers |
 | `subscribe()`            | —             | `watch::Receiver<Config>` | Returns a new subscriber handle                                         |
 
 ---
@@ -175,28 +177,30 @@ pub struct ConfigPatch {
 
 ### ObserverCallbackRegistry
 
-Manages host-registered observer callbacks for system-wide event delivery.
+Manages host-registered observer callbacks for system-wide event delivery via channels (FRB-compatible — no `dyn Fn` closures in the public API).
 
 ```rust
-/// Registry of host-provided observer callbacks.
+/// Registry of host-provided observer sinks.
 ///
 /// Implements the `Observer` trait so it can be plugged into the
-/// existing observability pipeline.
+/// existing observability pipeline. Uses mpsc channels for FRB
+/// compatibility (StreamSink<ObserverEventDto> on the FRB side).
 pub struct ObserverCallbackRegistry {
-    /// Registered callback functions.
-    /// Each callback receives a serialized ObserverEvent.
-    callbacks: Arc<Mutex<Vec<Box<dyn Fn(ObserverEventDto) + Send + Sync>>>>,
+    /// Registered sinks (id → sender).
+    sinks: Arc<Mutex<HashMap<u64, tokio::sync::mpsc::Sender<ObserverEventDto>>>>,
+    /// Next sink ID (monotonically increasing).
+    next_id: Arc<AtomicU64>,
 }
 ```
 
 **Key operations**:
 
-| Operation            | Input                  | Output      | Side effects               |
-| -------------------- | ---------------------- | ----------- | -------------------------- |
-| `register(callback)` | `Fn(ObserverEventDto)` | callback ID | Adds to callback list      |
-| `unregister(id)`     | callback ID            | —           | Removes from callback list |
+| Operation             | Input                                   | Output      | Side effects               |
+| --------------------- | --------------------------------------- | ----------- | -------------------------- |
+| `register(tx)`        | `mpsc::Sender<ObserverEventDto>`        | `u64` (ID)  | Adds sender to registry    |
+| `unregister(id)`      | `u64` (ID)                              | —           | Removes sender from registry |
 
-**Note**: `ObserverEventDto` is a FRB-compatible version of `ObserverEvent` — same semantic content but using only types FRB can translate (no `Duration`, use `u64` millis instead; no `Option<f64>`, use nullable `f64`).
+**Note**: FRB translates `StreamSink<ObserverEventDto>` into a Dart `Stream<ObserverEventDto>`. On the Rust side, `register_observer()` in `src/api/observer.rs` creates an `mpsc` channel, stores the sender in the registry, and returns the receiver as a stream to FRB.
 
 ---
 
@@ -245,23 +249,26 @@ pub enum ObserverEventDto {
 
 ### Agent (existing)
 
-**Changes**: A new method `turn_streaming()` is added alongside the existing `turn()`:
+**Changes**: `turn_streaming()` **already exists** at `src/agent/agent.rs` L808-1045. It takes `tokio::sync::mpsc::Sender<StreamEvent>`, `CancellationToken`, and an `observer_registry` parameter. No new method needed — `src/api/conversation.rs` wraps this existing method.
 
 ```rust
 impl Agent {
     /// Existing: process a message, return full response.
     pub async fn turn(&mut self, message: &str) -> Result<String> { /* unchanged */ }
 
-    /// New: process a message, stream events to the provided sink.
+    /// Existing: process a message, stream events to the provided channel.
+    /// Already implemented at L808-1045.
     pub async fn turn_streaming(
         &mut self,
         message: &str,
         event_tx: tokio::sync::mpsc::Sender<StreamEvent>,
-    ) -> Result<()> { /* new */ }
+        cancel_token: CancellationToken,
+        observer_registry: &ObserverCallbackRegistry,
+    ) -> Result<()> { /* existing */ }
 }
 ```
 
-The `turn()` method remains unchanged for backward compatibility. `turn_streaming()` uses the same internal tool loop but emits `StreamEvent`s at each step.
+The `turn()` method remains unchanged for backward compatibility. `turn_streaming()` uses the same internal tool loop but emits `StreamEvent`s at each step. Currently calls `provider.chat()` (non-streaming); true provider-level streaming is a future enhancement.
 
 ---
 
