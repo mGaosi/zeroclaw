@@ -94,6 +94,8 @@ A mobile app developer building a chat UI needs fine-grained streaming events fr
 - What happens when a runtime config change is applied during an active conversation? The change must not disrupt the in-flight interaction — it applies to the *next* request.
 - What happens when the gateway feature is disabled but code elsewhere references gateway types? Compilation must succeed with no dead-code warnings related to gateway absence.
 - What happens when the streaming consumer drops (e.g., UI dismissed) mid-stream? The agent should detect the dropped receiver and cancel or complete the request gracefully without resource leaks.
+- What happens when `send_message()` is called while a previous message is still being processed? Conversations are serial — the second call queues behind the first via the internal `Arc<Mutex<Agent>>`. For parallel conversations, create separate `AgentHandle` instances.
+- What happens when the provider is switched mid-conversation via `update_config()`? Conversation history is preserved and fed to the new provider using the common message format. No history is lost or reset on provider switch.
 
 ## Requirements *(mandatory)*
 
@@ -107,7 +109,7 @@ A mobile app developer building a chat UI needs fine-grained streaming events fr
 - **FR-006**: Runtime configuration changes MUST take effect for the next interaction without requiring an agent restart.
 - **FR-007**: Runtime configuration changes MUST be validated before application; invalid changes MUST be rejected with clear error descriptions.
 - **FR-008**: The system MUST support loading configuration from a TOML file at startup, using the existing config schema.
-- **FR-009**: The system MUST support triggering a config file reload at runtime, merging file values with the current in-memory configuration.
+- **FR-009**: The system MUST support triggering a config file reload at runtime, merging file values with the current in-memory configuration. Merge semantics: file values overwrite matching fields; fields absent from the file retain their current in-memory values (preserving runtime-injected secrets per FR-015).
 - **FR-010**: When the gateway feature is enabled, all existing gateway functionality (HTTP endpoints, WebSocket chat, SSE events, webhook handlers, pairing, static dashboard) MUST continue to work without regressions.
 - **FR-011**: When the gateway feature is disabled, the CLI MUST gracefully report that gateway commands are unavailable rather than failing silently or panicking.
 - **FR-012**: The streaming interface MUST support cancellation — if the consumer stops reading, in-flight processing should be cancellable.
@@ -130,8 +132,9 @@ A mobile app developer building a chat UI needs fine-grained streaming events fr
 - Existing channels (Telegram, Discord, Slack) that depend on network connectivity will still function on Android if the device has network access and those features are compiled in.
 - The config file format remains TOML, consistent with the existing config schema. No new config format is introduced.
 - On Android, API keys and secrets are expected to be provided at runtime via the programmatic config interface, not stored in the TOML config file. The host Flutter app is responsible for secure secret storage (e.g., Android Keystore, flutter_secure_storage). The Rust library does not implement platform-specific key storage.
-- The streaming event protocol mirrors the existing WebSocket chat protocol semantics (chunk/tool_call/tool_result/done), ensuring consistency between the gateway WebSocket interface and the library interface.
+- The streaming event protocol mirrors the existing WebSocket chat protocol semantics (chunk/tool_call/tool_result/done), ensuring consistency between the gateway WebSocket interface and the library interface. For non-streaming providers, the full response is emitted as a single Chunk event followed by Done — the event protocol is unchanged, only chunk granularity differs.
 - Performance on Android (ARM devices) is expected to be lower than desktop/server — no specific performance targets are set beyond "responsive for interactive chat."
+- Conversation history is preserved across runtime provider switches. The common message format normalizes across providers.
 
 ## Success Criteria *(mandatory)*
 
@@ -155,3 +158,10 @@ A mobile app developer building a chat UI needs fine-grained streaming events fr
 - Q: How should the streaming conversation API be designed for FFI/JNI consumption? → A: Rust async Stream via flutter_rust_bridge (FRB) — FRB natively translates Rust async Streams into Dart Streams, so the Rust API uses standard async Stream types and FRB handles the bridging automatically.
 - Q: How should API keys/secrets be protected on Android? → A: Secrets must be provided at runtime via the programmatic config interface; the host Flutter app handles secure storage (e.g., Android Keystore). The TOML config file should not contain secrets on Android (Option B).
 - Q: Should the spec scope Android only, or include iOS as well? → A: Both Android and iOS are explicit targets (Option B). The Rust library must compile for aarch64-linux-android and aarch64-apple-ios. Flutter/FRB is inherently cross-platform, so supporting both costs minimal extra effort.
+
+### Session 2026-03-23
+
+- Q: What happens when send_message() is called while a previous message is still streaming? → A: Serial — the second call queues behind the first via the existing Arc<Mutex<Agent>>. For parallel conversations, create separate AgentHandle instances.
+- Q: Should reload_config_from_file() replace the entire in-memory config or merge? → A: Merge — file values overwrite matching fields; absent fields retain current in-memory values. This preserves runtime-injected secrets (FR-015).
+- Q: When the provider is switched at runtime via update_config(), what happens to existing conversation history? → A: History is preserved and fed to the new provider. The common message format normalizes across providers, so switching mid-conversation works transparently.
+- Q: When a provider doesn't support streaming (no stream_chat_with_history), how should turn_streaming() emit events? → A: Emit the complete response as a single StreamEvent::Chunk followed by StreamEvent::Done. Non-streaming providers degrade gracefully — the event protocol is unchanged, only granularity differs.

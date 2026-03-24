@@ -91,6 +91,28 @@ impl AgentHandle {
         let mut rx = self.config_rx.lock().await;
         rx.mark_changed();
     }
+
+    /// Test-only constructor: build an AgentHandle from a pre-built Agent
+    /// and optional config file path. Used in integration tests with mock providers.
+    #[doc(hidden)]
+    pub fn from_agent_for_test(
+        agent: crate::agent::agent::Agent,
+        config: crate::config::Config,
+        config_path: Option<std::path::PathBuf>,
+    ) -> Self {
+        let observer_registry = Arc::new(ObserverCallbackRegistry::new());
+        let config_manager = Arc::new(RuntimeConfigManager::new(config, config_path));
+        let config_rx = config_manager.subscribe();
+        config_rx.has_changed().ok();
+        Self {
+            agent: Arc::new(Mutex::new(agent)),
+            config_manager,
+            observer_registry,
+            cancel_token: CancellationToken::new(),
+            config_rx: Arc::new(Mutex::new(config_rx)),
+            initialized: true,
+        }
+    }
 }
 
 /// Initialize a ZeroClaw agent instance.
