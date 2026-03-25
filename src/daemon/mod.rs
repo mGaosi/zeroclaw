@@ -79,20 +79,92 @@ pub async fn run(config: Config, host: String, port: u16) -> Result<()> {
     }
 
     {
-        if has_supervised_channels(&config) {
-            let channels_cfg = config.clone();
-            handles.push(spawn_component_supervisor(
-                "channels",
-                initial_backoff,
-                max_backoff,
-                move || {
-                    let cfg = channels_cfg.clone();
-                    async move { Box::pin(crate::channels::start_channels(cfg)).await }
-                },
-            ));
-        } else {
+        // Compile-time short-circuit: if no channel features are compiled,
+        // skip the runtime check entirely and mark channels healthy.
+        #[cfg(not(any(
+            feature = "channels-all",
+            feature = "channel-telegram",
+            feature = "channel-discord",
+            feature = "channel-slack",
+            feature = "channel-mattermost",
+            feature = "channel-signal",
+            feature = "channel-email",
+            feature = "channel-gmail-push",
+            feature = "channel-irc",
+            feature = "channel-webhook",
+            feature = "channel-reddit",
+            feature = "channel-bluesky",
+            feature = "channel-twitter",
+            feature = "channel-qq",
+            feature = "channel-imessage",
+            feature = "channel-wecom",
+            feature = "channel-mochat",
+            feature = "channel-nextcloud-talk",
+            feature = "channel-wati",
+            feature = "channel-whatsapp",
+            feature = "channel-dingtalk",
+            feature = "channel-clawdtalk",
+            feature = "channel-notion",
+            feature = "channel-linq",
+            feature = "channel-cli",
+            feature = "channel-nostr",
+            feature = "channel-matrix",
+            feature = "channel-lark",
+            feature = "whatsapp-web",
+            feature = "voice-wake",
+        )))]
+        {
             crate::health::mark_component_ok("channels");
-            tracing::info!("No real-time channels configured; channel supervisor disabled");
+            tracing::info!("No channel features compiled; channel supervisor skipped");
+        }
+        #[cfg(any(
+            feature = "channels-all",
+            feature = "channel-telegram",
+            feature = "channel-discord",
+            feature = "channel-slack",
+            feature = "channel-mattermost",
+            feature = "channel-signal",
+            feature = "channel-email",
+            feature = "channel-gmail-push",
+            feature = "channel-irc",
+            feature = "channel-webhook",
+            feature = "channel-reddit",
+            feature = "channel-bluesky",
+            feature = "channel-twitter",
+            feature = "channel-qq",
+            feature = "channel-imessage",
+            feature = "channel-wecom",
+            feature = "channel-mochat",
+            feature = "channel-nextcloud-talk",
+            feature = "channel-wati",
+            feature = "channel-whatsapp",
+            feature = "channel-dingtalk",
+            feature = "channel-clawdtalk",
+            feature = "channel-notion",
+            feature = "channel-linq",
+            feature = "channel-cli",
+            feature = "channel-nostr",
+            feature = "channel-matrix",
+            feature = "channel-lark",
+            feature = "whatsapp-web",
+            feature = "voice-wake",
+        ))]
+        {
+            if has_supervised_channels(&config) {
+                let channels_cfg = config.clone();
+                handles.push(spawn_component_supervisor(
+                    "channels",
+                    initial_backoff,
+                    max_backoff,
+                    move || {
+                        let cfg = channels_cfg.clone();
+                        async move { Box::pin(crate::channels::start_channels(cfg)).await }
+                    },
+                ));
+            } else {
+                crate::health::mark_component_ok("channels");
+                tracing::info!("No real-time channels configured; channel supervisor disabled");
+            }
         }
     }
 
@@ -123,6 +195,12 @@ pub async fn run(config: Config, host: String, port: u16) -> Result<()> {
     } else {
         crate::health::mark_component_ok("scheduler");
         tracing::info!("Cron disabled; scheduler supervisor not started");
+    }
+
+    // EC-004: Warn when no external interfaces are active
+    #[cfg(not(feature = "gateway"))]
+    if !has_supervised_channels(&config) {
+        tracing::warn!("No external interfaces active (gateway disabled, no channels configured). The daemon will only run heartbeat and scheduler.");
     }
 
     println!("🧠 ZeroClaw daemon started");

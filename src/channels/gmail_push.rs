@@ -21,7 +21,6 @@ use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use reqwest::Client;
-use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::fmt::Write as _;
 use std::sync::Arc;
@@ -33,62 +32,7 @@ use super::traits::{Channel, ChannelMessage, SendMessage};
 
 // ── Configuration ────────────────────────────────────────────────
 
-/// Gmail Pub/Sub push notification channel configuration.
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-pub struct GmailPushConfig {
-    /// Enable the Gmail push channel. Default: `false`.
-    #[serde(default)]
-    pub enabled: bool,
-    /// Google Cloud Pub/Sub topic in the form `projects/<project>/topics/<topic>`.
-    pub topic: String,
-    /// Gmail labels to watch. Default: `["INBOX"]`.
-    #[serde(default = "default_label_filter")]
-    pub label_filter: Vec<String>,
-    /// OAuth2 access token for the Gmail API.
-    /// Falls back to `GMAIL_PUSH_OAUTH_TOKEN` env var.
-    #[serde(default)]
-    pub oauth_token: String,
-    /// Allowed sender addresses/domains. Empty = deny all, `["*"]` = allow all.
-    #[serde(default)]
-    pub allowed_senders: Vec<String>,
-    /// Webhook URL that Google Pub/Sub should POST to.
-    /// Usually `https://<your-domain>/webhook/gmail`.
-    /// If empty, watch registration is skipped (useful when using external subscription management).
-    #[serde(default)]
-    pub webhook_url: String,
-    /// Shared secret for webhook authentication. If set, incoming webhook
-    /// requests must include `Authorization: Bearer <secret>`.
-    /// Falls back to `GMAIL_PUSH_WEBHOOK_SECRET` env var.
-    #[serde(default)]
-    pub webhook_secret: String,
-}
-
-fn default_label_filter() -> Vec<String> {
-    vec!["INBOX".into()]
-}
-
-impl crate::config::traits::ChannelConfig for GmailPushConfig {
-    fn name() -> &'static str {
-        "Gmail Push"
-    }
-    fn desc() -> &'static str {
-        "Gmail Pub/Sub real-time push notifications"
-    }
-}
-
-impl Default for GmailPushConfig {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            topic: String::new(),
-            label_filter: default_label_filter(),
-            oauth_token: String::new(),
-            allowed_senders: Vec::new(),
-            webhook_url: String::new(),
-            webhook_secret: String::new(),
-        }
-    }
-}
+pub use crate::config::schema::GmailPushConfig;
 
 // ── Pub/Sub notification payload ─────────────────────────────────
 

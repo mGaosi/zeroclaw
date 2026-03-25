@@ -1062,29 +1062,38 @@ impl Agent {
         self.turn(message).await
     }
 
+    #[allow(clippy::unused_async)]
     pub async fn run_interactive(&mut self) -> Result<()> {
         println!("🦀 ZeroClaw Interactive Mode");
         println!("Type /quit to exit.\n");
 
-        let (tx, mut rx) = tokio::sync::mpsc::channel(32);
-        let cli = crate::channels::CliChannel::new();
+        #[cfg(feature = "channel-cli")]
+        {
+            let (tx, mut rx) = tokio::sync::mpsc::channel(32);
+            let cli = crate::channels::CliChannel::new();
 
-        let listen_handle = tokio::spawn(async move {
-            let _ = crate::channels::Channel::listen(&cli, tx).await;
-        });
+            let listen_handle = tokio::spawn(async move {
+                let _ = crate::channels::Channel::listen(&cli, tx).await;
+            });
 
-        while let Some(msg) = rx.recv().await {
-            let response = match self.turn(&msg.content).await {
-                Ok(resp) => resp,
-                Err(e) => {
-                    eprintln!("\nError: {e}\n");
-                    continue;
-                }
-            };
-            println!("\n{response}\n");
+            while let Some(msg) = rx.recv().await {
+                let response = match self.turn(&msg.content).await {
+                    Ok(resp) => resp,
+                    Err(e) => {
+                        eprintln!("\nError: {e}\n");
+                        continue;
+                    }
+                };
+                println!("\n{response}\n");
+            }
+
+            listen_handle.abort();
         }
-
-        listen_handle.abort();
+        #[cfg(not(feature = "channel-cli"))]
+        {
+            anyhow::bail!("interactive mode requires the `channel-cli` feature");
+        }
+        #[allow(unreachable_code)]
         Ok(())
     }
 }

@@ -1,3 +1,4 @@
+#![cfg(feature = "channel-telegram")]
 //! Regression tests for Telegram attachment fallback behavior.
 //!
 //! When sending media by URL fails (e.g. Telegram can't fetch the URL or the

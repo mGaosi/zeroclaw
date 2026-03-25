@@ -4083,6 +4083,7 @@ pub async fn run(
     } else {
         println!("🦀 ZeroClaw Interactive Mode");
         println!("Type /help for commands.\n");
+        #[cfg(feature = "channel-cli")]
         let cli = crate::channels::CliChannel::new();
 
         // Persistent conversation history across turns
@@ -4315,6 +4316,7 @@ pub async fn run(
                 }
             };
             final_output = response.clone();
+            #[cfg(feature = "channel-cli")]
             if let Err(e) = crate::channels::Channel::send(
                 &cli,
                 &crate::channels::traits::SendMessage::new(format!("\n{response}\n"), "user"),
@@ -4323,6 +4325,8 @@ pub async fn run(
             {
                 eprintln!("\nError sending CLI response: {e}\n");
             }
+            #[cfg(not(feature = "channel-cli"))]
+            println!("\n{response}\n");
             observer.record_event(&ObserverEvent::TurnComplete);
 
             // Auto-compaction before hard trimming to preserve long-context signal.

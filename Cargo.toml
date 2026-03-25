@@ -159,10 +159,10 @@ rustls-pki-types = "1.14.0"
 tokio-rustls = "0.26.4"
 webpki-roots = "1.0.6"
 
-# email
-lettre = { version = "0.11.19", default-features = false, features = ["builder", "smtp-transport", "rustls-tls"] }
-mail-parser = "0.11.2"
-async-imap = { version = "0.11",features = ["runtime-tokio"], default-features = false }
+# email (optional — only pulled in by channel-email)
+lettre = { version = "0.11.19", default-features = false, features = ["builder", "smtp-transport", "rustls-tls"], optional = true }
+mail-parser = { version = "0.11.2", optional = true }
+async-imap = { version = "0.11", features = ["runtime-tokio"], default-features = false, optional = true }
 
 # HTTP server (gateway) — replaces raw TCP for proper HTTP/1.1 compliance
 axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio", "query", "ws", "macros"], optional = true }
@@ -227,13 +227,55 @@ landlock = { version = "0.4", optional = true }
 libc = "0.2"
 
 [features]
-default = ["observability-prometheus", "channel-nostr", "skill-creation", "gateway"]
+default = ["observability-prometheus", "channels-all", "skill-creation", "gateway"]
 gateway = ["dep:axum", "dep:tower", "dep:tower-http", "dep:http-body-util", "dep:rust-embed", "dep:mime_guess"]
+# Individual channel feature flags
+channel-telegram = []
+channel-discord = []
+channel-discord-history = []
+channel-slack = []
+channel-mattermost = []
+channel-signal = []
+channel-email = ["dep:lettre", "dep:mail-parser", "dep:async-imap"]
+channel-gmail-push = []
+channel-irc = []
+channel-webhook = []
+channel-reddit = []
+channel-bluesky = []
+channel-twitter = []
+channel-qq = []
+channel-imessage = []
+channel-wecom = []
+channel-mochat = []
+channel-nextcloud-talk = []
+channel-wati = []
+channel-whatsapp = []
+channel-dingtalk = []
+channel-clawdtalk = []
+channel-notion = []
+channel-linq = []
+channel-cli = []
 channel-nostr = ["dep:nostr-sdk"]
-hardware = ["nusb", "tokio-serial"]
 channel-matrix = ["dep:matrix-sdk"]
 channel-lark = ["dep:prost"]
 channel-feishu = ["channel-lark"]  # Alias for Feishu users (Lark and Feishu are the same platform)
+# Meta-feature: all channels (backward compatibility)
+channels-all = [
+    "channel-telegram", "channel-discord", "channel-discord-history",
+    "channel-slack", "channel-mattermost", "channel-signal",
+    "channel-email", "channel-gmail-push", "channel-irc",
+    "channel-webhook", "channel-reddit", "channel-bluesky",
+    "channel-twitter", "channel-qq", "channel-imessage",
+    "channel-wecom", "channel-mochat", "channel-nextcloud-talk",
+    "channel-wati", "channel-whatsapp", "channel-dingtalk",
+    "channel-clawdtalk", "channel-notion", "channel-linq",
+    "channel-cli",
+    "channel-nostr", "channel-matrix", "channel-lark",
+    "whatsapp-web",
+    # voice-wake excluded: requires libasound2-dev (system library)
+    # whatsapp-web included: wa-rs crates are pure Rust
+]
+hardware = ["nusb", "tokio-serial"]
 memory-postgres = ["dep:postgres"]
 observability-prometheus = ["dep:prometheus"]
 observability-otel = ["dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentelemetry-otlp"]
@@ -266,10 +308,8 @@ frb = ["dep:flutter_rust_bridge"]
 # Meta-feature for CI: all features except those requiring system C libraries
 # not available on standard CI runners (e.g., voice-wake needs libasound2-dev).
 ci-all = [
-    "channel-nostr",
+    "channels-all",
     "hardware",
-    "channel-matrix",
-    "channel-lark",
     "memory-postgres",
     "observability-prometheus",
     "observability-otel",
@@ -280,7 +320,6 @@ ci-all = [
     "probe",
     "rag-pdf",
     "skill-creation",
-    "whatsapp-web",
     "plugins-wasm",
 ]
 

@@ -14,86 +14,136 @@
 //! To add a new channel, implement [`Channel`] in a new submodule and wire it into
 //! [`start_channels`]. See `AGENTS.md` §7.2 for the full change playbook.
 
+#[cfg(feature = "channel-bluesky")]
 pub mod bluesky;
+#[cfg(feature = "channel-clawdtalk")]
 pub mod clawdtalk;
+#[cfg(feature = "channel-cli")]
 pub mod cli;
+#[cfg(feature = "channel-dingtalk")]
 pub mod dingtalk;
+#[cfg(feature = "channel-discord")]
 pub mod discord;
+#[cfg(feature = "channel-discord-history")]
 pub mod discord_history;
+#[cfg(feature = "channel-email")]
 pub mod email_channel;
+#[cfg(feature = "channel-gmail-push")]
 pub mod gmail_push;
+#[cfg(feature = "channel-imessage")]
 pub mod imessage;
+#[cfg(feature = "channel-irc")]
 pub mod irc;
 #[cfg(feature = "channel-lark")]
 pub mod lark;
 pub mod link_enricher;
+#[cfg(feature = "channel-linq")]
 pub mod linq;
 #[cfg(feature = "channel-matrix")]
 pub mod matrix;
+#[cfg(feature = "channel-mattermost")]
 pub mod mattermost;
+#[cfg(feature = "channel-mochat")]
 pub mod mochat;
+#[cfg(feature = "channel-nextcloud-talk")]
 pub mod nextcloud_talk;
 #[cfg(feature = "channel-nostr")]
 pub mod nostr;
+#[cfg(feature = "channel-notion")]
 pub mod notion;
+#[cfg(feature = "channel-qq")]
 pub mod qq;
+#[cfg(feature = "channel-reddit")]
 pub mod reddit;
 pub mod session_backend;
 pub mod session_sqlite;
 pub mod session_store;
+#[cfg(feature = "channel-signal")]
 pub mod signal;
+#[cfg(feature = "channel-slack")]
 pub mod slack;
+#[cfg(feature = "channel-telegram")]
 pub mod telegram;
 pub mod traits;
 pub mod transcription;
 pub mod tts;
+#[cfg(feature = "channel-twitter")]
 pub mod twitter;
 #[cfg(feature = "voice-wake")]
 pub mod voice_wake;
+#[cfg(feature = "channel-wati")]
 pub mod wati;
+#[cfg(feature = "channel-webhook")]
 pub mod webhook;
+#[cfg(feature = "channel-wecom")]
 pub mod wecom;
+#[cfg(feature = "channel-whatsapp")]
 pub mod whatsapp;
 #[cfg(feature = "whatsapp-web")]
 pub mod whatsapp_storage;
 #[cfg(feature = "whatsapp-web")]
 pub mod whatsapp_web;
 
+#[cfg(feature = "channel-bluesky")]
 pub use bluesky::BlueskyChannel;
-pub use clawdtalk::{ClawdTalkChannel, ClawdTalkConfig};
+#[cfg(feature = "channel-clawdtalk")]
+pub use clawdtalk::ClawdTalkChannel;
+#[cfg(feature = "channel-cli")]
 pub use cli::CliChannel;
+#[cfg(feature = "channel-dingtalk")]
 pub use dingtalk::DingTalkChannel;
+#[cfg(feature = "channel-discord")]
 pub use discord::DiscordChannel;
+#[cfg(feature = "channel-discord-history")]
 pub use discord_history::DiscordHistoryChannel;
+#[cfg(feature = "channel-email")]
 pub use email_channel::EmailChannel;
+#[cfg(feature = "channel-gmail-push")]
 pub use gmail_push::GmailPushChannel;
+#[cfg(feature = "channel-imessage")]
 pub use imessage::IMessageChannel;
+#[cfg(feature = "channel-irc")]
 pub use irc::IrcChannel;
 #[cfg(feature = "channel-lark")]
 pub use lark::LarkChannel;
+#[cfg(feature = "channel-linq")]
 pub use linq::LinqChannel;
 #[cfg(feature = "channel-matrix")]
 pub use matrix::MatrixChannel;
+#[cfg(feature = "channel-mattermost")]
 pub use mattermost::MattermostChannel;
+#[cfg(feature = "channel-mochat")]
 pub use mochat::MochatChannel;
+#[cfg(feature = "channel-nextcloud-talk")]
 pub use nextcloud_talk::NextcloudTalkChannel;
 #[cfg(feature = "channel-nostr")]
 pub use nostr::NostrChannel;
+#[cfg(feature = "channel-notion")]
 pub use notion::NotionChannel;
+#[cfg(feature = "channel-qq")]
 pub use qq::QQChannel;
+#[cfg(feature = "channel-reddit")]
 pub use reddit::RedditChannel;
+#[cfg(feature = "channel-signal")]
 pub use signal::SignalChannel;
+#[cfg(feature = "channel-slack")]
 pub use slack::SlackChannel;
+#[cfg(feature = "channel-telegram")]
 pub use telegram::TelegramChannel;
 pub use traits::{Channel, SendMessage};
 #[allow(unused_imports)]
 pub use tts::{TtsManager, TtsProvider};
+#[cfg(feature = "channel-twitter")]
 pub use twitter::TwitterChannel;
 #[cfg(feature = "voice-wake")]
 pub use voice_wake::VoiceWakeChannel;
+#[cfg(feature = "channel-wati")]
 pub use wati::WatiChannel;
+#[cfg(feature = "channel-webhook")]
 pub use webhook::WebhookChannel;
+#[cfg(feature = "channel-wecom")]
 pub use wecom::WeComChannel;
+#[cfg(feature = "channel-whatsapp")]
 pub use whatsapp::WhatsAppChannel;
 #[cfg(feature = "whatsapp-web")]
 pub use whatsapp_web::WhatsAppWebChannel;
@@ -3447,10 +3497,12 @@ fn inject_workspace_file(
     }
 }
 
+#[cfg(feature = "channel-telegram")]
 fn normalize_telegram_identity(value: &str) -> String {
     value.trim().trim_start_matches('@').to_string()
 }
 
+#[cfg(feature = "channel-telegram")]
 async fn bind_telegram_identity(config: &Config, identity: &str) -> Result<()> {
     let normalized = normalize_telegram_identity(identity);
     if normalized.is_empty() {
@@ -3607,6 +3659,47 @@ pub(crate) async fn handle_command(command: crate::ChannelCommands, config: &Con
             anyhow::bail!("Doctor must be handled in main.rs (requires async runtime)")
         }
         crate::ChannelCommands::List => {
+            // FR-008: When no channel features are compiled, show diagnostic
+            #[cfg(not(any(
+                feature = "channels-all",
+                feature = "channel-telegram",
+                feature = "channel-discord",
+                feature = "channel-discord-history",
+                feature = "channel-slack",
+                feature = "channel-mattermost",
+                feature = "channel-signal",
+                feature = "channel-email",
+                feature = "channel-gmail-push",
+                feature = "channel-irc",
+                feature = "channel-webhook",
+                feature = "channel-reddit",
+                feature = "channel-bluesky",
+                feature = "channel-twitter",
+                feature = "channel-qq",
+                feature = "channel-imessage",
+                feature = "channel-wecom",
+                feature = "channel-mochat",
+                feature = "channel-nextcloud-talk",
+                feature = "channel-wati",
+                feature = "channel-whatsapp",
+                feature = "channel-dingtalk",
+                feature = "channel-clawdtalk",
+                feature = "channel-notion",
+                feature = "channel-linq",
+                feature = "channel-cli",
+                feature = "channel-nostr",
+                feature = "channel-matrix",
+                feature = "channel-lark",
+                feature = "whatsapp-web",
+                feature = "voice-wake",
+            )))]
+            {
+                println!("⚠️  No channel features compiled in this build.");
+                println!("To enable channels, rebuild with feature flags, e.g.:");
+                println!("  cargo build --features channels-all");
+                println!("  cargo build --features channel-telegram,channel-discord");
+                println!();
+            }
             println!("Channels:");
             println!("  ✅ CLI (always available)");
             for (channel, configured) in config.channels_config.channels() {
@@ -3649,7 +3742,15 @@ pub(crate) async fn handle_command(command: crate::ChannelCommands, config: &Con
             anyhow::bail!("Remove channel '{name}' — edit ~/.zeroclaw/config.toml directly");
         }
         crate::ChannelCommands::BindTelegram { identity } => {
-            Box::pin(bind_telegram_identity(config, &identity)).await
+            #[cfg(feature = "channel-telegram")]
+            {
+                Box::pin(bind_telegram_identity(config, &identity)).await
+            }
+            #[cfg(not(feature = "channel-telegram"))]
+            {
+                let _ = identity;
+                anyhow::bail!("channel-telegram feature not enabled; cannot bind telegram identity")
+            }
         }
         crate::ChannelCommands::Send {
             message,
@@ -3660,8 +3761,10 @@ pub(crate) async fn handle_command(command: crate::ChannelCommands, config: &Con
 }
 
 /// Build a single channel instance by config section name (e.g. "telegram").
+#[allow(unused_variables)]
 fn build_channel_by_id(config: &Config, channel_id: &str) -> Result<Arc<dyn Channel>> {
     match channel_id {
+        #[cfg(feature = "channel-telegram")]
         "telegram" => {
             let tg = config
                 .channels_config
@@ -3684,6 +3787,7 @@ fn build_channel_by_id(config: &Config, channel_id: &str) -> Result<Arc<dyn Chan
                 .with_workspace_dir(config.workspace_dir.clone()),
             ))
         }
+        #[cfg(feature = "channel-discord")]
         "discord" => {
             let dc = config
                 .channels_config
@@ -3701,6 +3805,7 @@ fn build_channel_by_id(config: &Config, channel_id: &str) -> Result<Arc<dyn Chan
                 .with_transcription(config.transcription.clone()),
             ))
         }
+        #[cfg(feature = "channel-slack")]
         "slack" => {
             let sl = config
                 .channels_config
@@ -3719,7 +3824,7 @@ fn build_channel_by_id(config: &Config, channel_id: &str) -> Result<Arc<dyn Chan
                 .with_transcription(config.transcription.clone()),
             ))
         }
-        other => anyhow::bail!("Unknown channel '{other}'. Supported: telegram, discord, slack"),
+        other => anyhow::bail!("Unknown or disabled channel '{other}'. Supported (when compiled): telegram, discord, slack"),
     }
 }
 
@@ -3767,8 +3872,10 @@ fn collect_configured_channels(
     matrix_skip_context: &str,
 ) -> Vec<ConfiguredChannel> {
     let _ = matrix_skip_context;
+    #[allow(unused_mut)]
     let mut channels = Vec::new();
 
+    #[cfg(feature = "channel-telegram")]
     if let Some(ref tg) = config.channels_config.telegram {
         let ack = tg
             .ack_reactions
@@ -3790,7 +3897,12 @@ fn collect_configured_channels(
             ),
         });
     }
+    #[cfg(not(feature = "channel-telegram"))]
+    if config.channels_config.telegram.is_some() {
+        tracing::warn!("channel-telegram feature not enabled; ignoring telegram configuration");
+    }
 
+    #[cfg(feature = "channel-discord")]
     if let Some(ref dc) = config.channels_config.discord {
         channels.push(ConfiguredChannel {
             display_name: "Discord",
@@ -3807,7 +3919,12 @@ fn collect_configured_channels(
             ),
         });
     }
+    #[cfg(not(feature = "channel-discord"))]
+    if config.channels_config.discord.is_some() {
+        tracing::warn!("channel-discord feature not enabled; ignoring discord configuration");
+    }
 
+    #[cfg(feature = "channel-discord-history")]
     if let Some(ref dh) = config.channels_config.discord_history {
         match crate::memory::SqliteMemory::new_named(&config.workspace_dir, "discord") {
             Ok(discord_mem) => {
@@ -3832,7 +3949,14 @@ fn collect_configured_channels(
             }
         }
     }
+    #[cfg(not(feature = "channel-discord-history"))]
+    if config.channels_config.discord_history.is_some() {
+        tracing::warn!(
+            "channel-discord-history feature not enabled; ignoring discord_history configuration"
+        );
+    }
 
+    #[cfg(feature = "channel-slack")]
     if let Some(ref sl) = config.channels_config.slack {
         channels.push(ConfiguredChannel {
             display_name: "Slack",
@@ -3852,7 +3976,12 @@ fn collect_configured_channels(
             ),
         });
     }
+    #[cfg(not(feature = "channel-slack"))]
+    if config.channels_config.slack.is_some() {
+        tracing::warn!("channel-slack feature not enabled; ignoring slack configuration");
+    }
 
+    #[cfg(feature = "channel-mattermost")]
     if let Some(ref mm) = config.channels_config.mattermost {
         channels.push(ConfiguredChannel {
             display_name: "Mattermost",
@@ -3869,12 +3998,21 @@ fn collect_configured_channels(
             ),
         });
     }
+    #[cfg(not(feature = "channel-mattermost"))]
+    if config.channels_config.mattermost.is_some() {
+        tracing::warn!("channel-mattermost feature not enabled; ignoring mattermost configuration");
+    }
 
+    #[cfg(feature = "channel-imessage")]
     if let Some(ref im) = config.channels_config.imessage {
         channels.push(ConfiguredChannel {
             display_name: "iMessage",
             channel: Arc::new(IMessageChannel::new(im.allowed_contacts.clone())),
         });
+    }
+    #[cfg(not(feature = "channel-imessage"))]
+    if config.channels_config.imessage.is_some() {
+        tracing::warn!("channel-imessage feature not enabled; ignoring imessage configuration");
     }
 
     #[cfg(feature = "channel-matrix")]
@@ -3902,6 +4040,7 @@ fn collect_configured_channels(
         );
     }
 
+    #[cfg(feature = "channel-signal")]
     if let Some(ref sig) = config.channels_config.signal {
         channels.push(ConfiguredChannel {
             display_name: "Signal",
@@ -3918,7 +4057,12 @@ fn collect_configured_channels(
             ),
         });
     }
+    #[cfg(not(feature = "channel-signal"))]
+    if config.channels_config.signal.is_some() {
+        tracing::warn!("channel-signal feature not enabled; ignoring signal configuration");
+    }
 
+    #[cfg(feature = "channel-whatsapp")]
     if let Some(ref wa) = config.channels_config.whatsapp {
         if wa.is_ambiguous_config() {
             tracing::warn!(
@@ -3982,7 +4126,12 @@ fn collect_configured_channels(
             }
         }
     }
+    #[cfg(not(feature = "channel-whatsapp"))]
+    if config.channels_config.whatsapp.is_some() {
+        tracing::warn!("channel-whatsapp feature not enabled; ignoring whatsapp configuration");
+    }
 
+    #[cfg(feature = "channel-linq")]
     if let Some(ref lq) = config.channels_config.linq {
         channels.push(ConfiguredChannel {
             display_name: "Linq",
@@ -3993,7 +4142,12 @@ fn collect_configured_channels(
             )),
         });
     }
+    #[cfg(not(feature = "channel-linq"))]
+    if config.channels_config.linq.is_some() {
+        tracing::warn!("channel-linq feature not enabled; ignoring linq configuration");
+    }
 
+    #[cfg(feature = "channel-wati")]
     if let Some(ref wati_cfg) = config.channels_config.wati {
         channels.push(ConfiguredChannel {
             display_name: "WATI",
@@ -4006,7 +4160,12 @@ fn collect_configured_channels(
             )),
         });
     }
+    #[cfg(not(feature = "channel-wati"))]
+    if config.channels_config.wati.is_some() {
+        tracing::warn!("channel-wati feature not enabled; ignoring wati configuration");
+    }
 
+    #[cfg(feature = "channel-nextcloud-talk")]
     if let Some(ref nc) = config.channels_config.nextcloud_talk {
         channels.push(ConfiguredChannel {
             display_name: "Nextcloud Talk",
@@ -4018,14 +4177,26 @@ fn collect_configured_channels(
             )),
         });
     }
+    #[cfg(not(feature = "channel-nextcloud-talk"))]
+    if config.channels_config.nextcloud_talk.is_some() {
+        tracing::warn!(
+            "channel-nextcloud-talk feature not enabled; ignoring nextcloud_talk configuration"
+        );
+    }
 
+    #[cfg(feature = "channel-email")]
     if let Some(ref email_cfg) = config.channels_config.email {
         channels.push(ConfiguredChannel {
             display_name: "Email",
             channel: Arc::new(EmailChannel::new(email_cfg.clone())),
         });
     }
+    #[cfg(not(feature = "channel-email"))]
+    if config.channels_config.email.is_some() {
+        tracing::warn!("channel-email feature not enabled; ignoring email configuration");
+    }
 
+    #[cfg(feature = "channel-gmail-push")]
     if let Some(ref gp_cfg) = config.channels_config.gmail_push {
         if gp_cfg.enabled {
             channels.push(ConfiguredChannel {
@@ -4034,7 +4205,17 @@ fn collect_configured_channels(
             });
         }
     }
+    #[cfg(not(feature = "channel-gmail-push"))]
+    if config
+        .channels_config
+        .gmail_push
+        .as_ref()
+        .is_some_and(|gp| gp.enabled)
+    {
+        tracing::warn!("channel-gmail-push feature not enabled; ignoring gmail_push configuration");
+    }
 
+    #[cfg(feature = "channel-irc")]
     if let Some(ref irc) = config.channels_config.irc {
         channels.push(ConfiguredChannel {
             display_name: "IRC",
@@ -4051,6 +4232,10 @@ fn collect_configured_channels(
                 verify_tls: irc.verify_tls.unwrap_or(true),
             })),
         });
+    }
+    #[cfg(not(feature = "channel-irc"))]
+    if config.channels_config.irc.is_some() {
+        tracing::warn!("channel-irc feature not enabled; ignoring irc configuration");
     }
 
     #[cfg(feature = "channel-lark")]
@@ -4092,6 +4277,7 @@ fn collect_configured_channels(
         );
     }
 
+    #[cfg(feature = "channel-dingtalk")]
     if let Some(ref dt) = config.channels_config.dingtalk {
         channels.push(ConfiguredChannel {
             display_name: "DingTalk",
@@ -4105,7 +4291,12 @@ fn collect_configured_channels(
             ),
         });
     }
+    #[cfg(not(feature = "channel-dingtalk"))]
+    if config.channels_config.dingtalk.is_some() {
+        tracing::warn!("channel-dingtalk feature not enabled; ignoring dingtalk configuration");
+    }
 
+    #[cfg(feature = "channel-qq")]
     if let Some(ref qq) = config.channels_config.qq {
         channels.push(ConfiguredChannel {
             display_name: "QQ",
@@ -4120,7 +4311,12 @@ fn collect_configured_channels(
             ),
         });
     }
+    #[cfg(not(feature = "channel-qq"))]
+    if config.channels_config.qq.is_some() {
+        tracing::warn!("channel-qq feature not enabled; ignoring qq configuration");
+    }
 
+    #[cfg(feature = "channel-twitter")]
     if let Some(ref tw) = config.channels_config.twitter {
         channels.push(ConfiguredChannel {
             display_name: "X/Twitter",
@@ -4130,7 +4326,12 @@ fn collect_configured_channels(
             )),
         });
     }
+    #[cfg(not(feature = "channel-twitter"))]
+    if config.channels_config.twitter.is_some() {
+        tracing::warn!("channel-twitter feature not enabled; ignoring twitter configuration");
+    }
 
+    #[cfg(feature = "channel-mochat")]
     if let Some(ref mc) = config.channels_config.mochat {
         channels.push(ConfiguredChannel {
             display_name: "Mochat",
@@ -4142,7 +4343,12 @@ fn collect_configured_channels(
             )),
         });
     }
+    #[cfg(not(feature = "channel-mochat"))]
+    if config.channels_config.mochat.is_some() {
+        tracing::warn!("channel-mochat feature not enabled; ignoring mochat configuration");
+    }
 
+    #[cfg(feature = "channel-wecom")]
     if let Some(ref wc) = config.channels_config.wecom {
         channels.push(ConfiguredChannel {
             display_name: "WeCom",
@@ -4152,15 +4358,25 @@ fn collect_configured_channels(
             )),
         });
     }
+    #[cfg(not(feature = "channel-wecom"))]
+    if config.channels_config.wecom.is_some() {
+        tracing::warn!("channel-wecom feature not enabled; ignoring wecom configuration");
+    }
 
+    #[cfg(feature = "channel-clawdtalk")]
     if let Some(ref ct) = config.channels_config.clawdtalk {
         channels.push(ConfiguredChannel {
             display_name: "ClawdTalk",
             channel: Arc::new(ClawdTalkChannel::new(ct.clone())),
         });
     }
+    #[cfg(not(feature = "channel-clawdtalk"))]
+    if config.channels_config.clawdtalk.is_some() {
+        tracing::warn!("channel-clawdtalk feature not enabled; ignoring clawdtalk configuration");
+    }
 
     // Notion database poller channel
+    #[cfg(feature = "channel-notion")]
     if config.notion.enabled && !config.notion.database_id.trim().is_empty() {
         let notion_api_key = if config.notion.api_key.trim().is_empty() {
             std::env::var("NOTION_API_KEY").unwrap_or_default()
@@ -4187,7 +4403,12 @@ fn collect_configured_channels(
             });
         }
     }
+    #[cfg(not(feature = "channel-notion"))]
+    if config.notion.enabled && !config.notion.database_id.trim().is_empty() {
+        tracing::warn!("channel-notion feature not enabled; ignoring notion configuration");
+    }
 
+    #[cfg(feature = "channel-reddit")]
     if let Some(ref rd) = config.channels_config.reddit {
         channels.push(ConfiguredChannel {
             display_name: "Reddit",
@@ -4200,7 +4421,12 @@ fn collect_configured_channels(
             )),
         });
     }
+    #[cfg(not(feature = "channel-reddit"))]
+    if config.channels_config.reddit.is_some() {
+        tracing::warn!("channel-reddit feature not enabled; ignoring reddit configuration");
+    }
 
+    #[cfg(feature = "channel-bluesky")]
     if let Some(ref bs) = config.channels_config.bluesky {
         channels.push(ConfiguredChannel {
             display_name: "Bluesky",
@@ -4209,6 +4435,10 @@ fn collect_configured_channels(
                 bs.app_password.clone(),
             )),
         });
+    }
+    #[cfg(not(feature = "channel-bluesky"))]
+    if config.channels_config.bluesky.is_some() {
+        tracing::warn!("channel-bluesky feature not enabled; ignoring bluesky configuration");
     }
 
     #[cfg(feature = "voice-wake")]
@@ -4222,6 +4452,7 @@ fn collect_configured_channels(
         });
     }
 
+    #[cfg(feature = "channel-webhook")]
     if let Some(ref wh) = config.channels_config.webhook {
         channels.push(ConfiguredChannel {
             display_name: "Webhook",
@@ -4234,6 +4465,10 @@ fn collect_configured_channels(
                 wh.secret.clone(),
             )),
         });
+    }
+    #[cfg(not(feature = "channel-webhook"))]
+    if config.channels_config.webhook.is_some() {
+        tracing::warn!("channel-webhook feature not enabled; ignoring webhook configuration");
     }
 
     channels
@@ -8995,6 +9230,7 @@ This is an example JSON object for profile settings."#;
     }
 
     #[test]
+    #[cfg(feature = "channel-mattermost")]
     fn collect_configured_channels_includes_mattermost_when_configured() {
         let mut config = Config::default();
         config.channels_config.mattermost = Some(crate::config::schema::MattermostConfig {
@@ -9422,8 +9658,8 @@ This is an example JSON object for profile settings."#;
             Err(e) => {
                 let err_msg = e.to_string();
                 assert!(
-                    err_msg.contains("Unknown channel"),
-                    "expected 'Unknown channel' in error, got: {err_msg}"
+                    err_msg.contains("Unknown") || err_msg.contains("disabled"),
+                    "expected 'Unknown' or 'disabled' in error, got: {err_msg}"
                 );
             }
             Ok(_) => panic!("should fail for unknown channel"),
@@ -9885,6 +10121,7 @@ This is an example JSON object for profile settings."#;
     }
 
     #[test]
+    #[cfg(feature = "channel-telegram")]
     fn build_channel_by_id_unconfigured_telegram_returns_error() {
         let config = Config::default();
         match build_channel_by_id(&config, "telegram") {
@@ -9900,6 +10137,7 @@ This is an example JSON object for profile settings."#;
     }
 
     #[test]
+    #[cfg(feature = "channel-telegram")]
     fn build_channel_by_id_configured_telegram_succeeds() {
         let mut config = Config::default();
         config.channels_config.telegram = Some(crate::config::schema::TelegramConfig {

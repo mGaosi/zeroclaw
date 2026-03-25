@@ -1,3 +1,4 @@
+#![cfg(feature = "channel-telegram")]
 use serde_json::json;
 use wiremock::matchers::{body_partial_json, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
