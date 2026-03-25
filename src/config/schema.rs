@@ -1809,7 +1809,7 @@ fn default_gateway_idempotency_max_keys() -> usize {
     10_000
 }
 
-fn default_true() -> bool {
+pub(crate) fn default_true() -> bool {
     true
 }
 
@@ -5146,9 +5146,9 @@ pub struct ChannelsConfig {
     /// Nextcloud Talk bot channel configuration.
     pub nextcloud_talk: Option<NextcloudTalkConfig>,
     /// Email channel configuration.
-    pub email: Option<crate::channels::email_channel::EmailConfig>,
+    pub email: Option<EmailConfig>,
     /// Gmail Pub/Sub push notification channel configuration.
-    pub gmail_push: Option<crate::channels::gmail_push::GmailPushConfig>,
+    pub gmail_push: Option<GmailPushConfig>,
     /// IRC channel configuration.
     pub irc: Option<IrcConfig>,
     /// Lark channel configuration.
@@ -5168,7 +5168,7 @@ pub struct ChannelsConfig {
     #[cfg(feature = "channel-nostr")]
     pub nostr: Option<NostrConfig>,
     /// ClawdTalk voice channel configuration.
-    pub clawdtalk: Option<crate::channels::ClawdTalkConfig>,
+    pub clawdtalk: Option<ClawdTalkConfig>,
     /// Reddit channel configuration (OAuth2 bot).
     pub reddit: Option<RedditConfig>,
     /// Bluesky channel configuration (AT Protocol).
@@ -6648,6 +6648,176 @@ impl ChannelConfig for BlueskyConfig {
     }
     fn desc() -> &'static str {
         "AT Protocol"
+    }
+}
+
+// ── Email channel configuration ──────────────────────────────────
+
+pub(crate) fn default_imap_port() -> u16 {
+    993
+}
+pub(crate) fn default_smtp_port() -> u16 {
+    465
+}
+pub(crate) fn default_imap_folder() -> String {
+    "INBOX".into()
+}
+pub(crate) fn default_idle_timeout() -> u64 {
+    1740 // 29 minutes per RFC 2177
+}
+fn default_subject() -> String {
+    "ZeroClaw Message".into()
+}
+
+/// Email channel configuration
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct EmailConfig {
+    /// IMAP server hostname
+    pub imap_host: String,
+    /// IMAP server port (default: 993 for TLS)
+    #[serde(default = "default_imap_port")]
+    pub imap_port: u16,
+    /// IMAP folder to poll (default: INBOX)
+    #[serde(default = "default_imap_folder")]
+    pub imap_folder: String,
+    /// SMTP server hostname
+    pub smtp_host: String,
+    /// SMTP server port (default: 465 for TLS)
+    #[serde(default = "default_smtp_port")]
+    pub smtp_port: u16,
+    /// Use TLS for SMTP (default: true)
+    #[serde(default = "default_true")]
+    pub smtp_tls: bool,
+    /// Email username for authentication
+    pub username: String,
+    /// Email password for authentication
+    pub password: String,
+    /// From address for outgoing emails
+    pub from_address: String,
+    /// IDLE timeout in seconds before re-establishing connection (default: 1740 = 29 minutes)
+    /// RFC 2177 recommends clients restart IDLE every 29 minutes
+    #[serde(default = "default_idle_timeout", alias = "poll_interval_secs")]
+    pub idle_timeout_secs: u64,
+    /// Allowed sender addresses/domains (empty = deny all, `["*"]` = allow all)
+    #[serde(default)]
+    pub allowed_senders: Vec<String>,
+    /// Default subject line for outgoing emails (default: "ZeroClaw Message")
+    #[serde(default = "default_subject")]
+    pub default_subject: String,
+}
+
+impl ChannelConfig for EmailConfig {
+    fn name() -> &'static str {
+        "Email"
+    }
+    fn desc() -> &'static str {
+        "Email over IMAP/SMTP"
+    }
+}
+
+impl Default for EmailConfig {
+    fn default() -> Self {
+        Self {
+            imap_host: String::new(),
+            imap_port: default_imap_port(),
+            imap_folder: default_imap_folder(),
+            smtp_host: String::new(),
+            smtp_port: default_smtp_port(),
+            smtp_tls: true,
+            username: String::new(),
+            password: String::new(),
+            from_address: String::new(),
+            idle_timeout_secs: default_idle_timeout(),
+            allowed_senders: Vec::new(),
+            default_subject: default_subject(),
+        }
+    }
+}
+
+// ── Gmail Push configuration ─────────────────────────────────────
+
+fn default_label_filter() -> Vec<String> {
+    vec!["INBOX".into()]
+}
+
+/// Gmail Pub/Sub push notification channel configuration.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct GmailPushConfig {
+    /// Enable the Gmail push channel. Default: `false`.
+    #[serde(default)]
+    pub enabled: bool,
+    /// Google Cloud Pub/Sub topic in the form `projects/<project>/topics/<topic>`.
+    pub topic: String,
+    /// Gmail labels to watch. Default: `["INBOX"]`.
+    #[serde(default = "default_label_filter")]
+    pub label_filter: Vec<String>,
+    /// OAuth2 access token for the Gmail API.
+    /// Falls back to `GMAIL_PUSH_OAUTH_TOKEN` env var.
+    #[serde(default)]
+    pub oauth_token: String,
+    /// Allowed sender addresses/domains. Empty = deny all, `["*"]` = allow all.
+    #[serde(default)]
+    pub allowed_senders: Vec<String>,
+    /// Webhook URL that Google Pub/Sub should POST to.
+    /// Usually `https://<your-domain>/webhook/gmail`.
+    /// If empty, watch registration is skipped (useful when using external subscription management).
+    #[serde(default)]
+    pub webhook_url: String,
+    /// Shared secret for webhook authentication. If set, incoming webhook
+    /// requests must include `Authorization: Bearer <secret>`.
+    /// Falls back to `GMAIL_PUSH_WEBHOOK_SECRET` env var.
+    #[serde(default)]
+    pub webhook_secret: String,
+}
+
+impl ChannelConfig for GmailPushConfig {
+    fn name() -> &'static str {
+        "Gmail Push"
+    }
+    fn desc() -> &'static str {
+        "Gmail Pub/Sub real-time push notifications"
+    }
+}
+
+impl Default for GmailPushConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            topic: String::new(),
+            label_filter: default_label_filter(),
+            oauth_token: String::new(),
+            allowed_senders: Vec::new(),
+            webhook_url: String::new(),
+            webhook_secret: String::new(),
+        }
+    }
+}
+
+// ── ClawdTalk configuration ──────────────────────────────────────
+
+/// Configuration for ClawdTalk channel from config.toml
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct ClawdTalkConfig {
+    /// Telnyx API key
+    pub api_key: String,
+    /// Telnyx connection ID for SIP
+    pub connection_id: String,
+    /// Phone number to call from (E.164 format)
+    pub from_number: String,
+    /// Allowed destination numbers or patterns
+    #[serde(default)]
+    pub allowed_destinations: Vec<String>,
+    /// Webhook secret for signature verification
+    #[serde(default)]
+    pub webhook_secret: Option<String>,
+}
+
+impl ChannelConfig for ClawdTalkConfig {
+    fn name() -> &'static str {
+        "ClawdTalk"
+    }
+    fn desc() -> &'static str {
+        "ClawdTalk Channel"
     }
 }
 
