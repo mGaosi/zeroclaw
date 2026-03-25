@@ -33,10 +33,19 @@ pub fn send_message(
     let observer = handle.observer_registry();
     let config_manager = handle.config_manager();
     let config_rx = handle.config_rx();
+    let host_tool_registry = handle.host_tool_registry();
 
     tokio::spawn(async move {
         // T029: Check for config changes and rebuild agent if needed
-        if let Err(e) = apply_config_changes_if_needed(&agent, &config_manager, &config_rx).await {
+        if let Err(e) = apply_config_changes_if_needed(
+            &agent,
+            &config_manager,
+            &config_rx,
+            &host_tool_registry,
+            &cancel_token,
+        )
+        .await
+        {
             tracing::warn!("Failed to apply config changes: {e}");
         }
 
@@ -67,6 +76,8 @@ async fn apply_config_changes_if_needed(
     agent: &std::sync::Arc<tokio::sync::Mutex<Agent>>,
     config_manager: &std::sync::Arc<crate::api::config::RuntimeConfigManager>,
     config_rx: &tokio::sync::Mutex<tokio::sync::watch::Receiver<crate::config::Config>>,
+    host_tool_registry: &std::sync::Arc<crate::api::host_tools::HostToolRegistry>,
+    cancel_token: &tokio_util::sync::CancellationToken,
 ) -> Result<(), crate::api::types::ApiError> {
     let changed = {
         let rx = config_rx.lock().await;
@@ -88,6 +99,13 @@ async fn apply_config_changes_if_needed(
         })?;
     let mut guard = agent.lock().await;
     *guard = new_agent;
+
+    // T037: Re-inject host tools after agent rebuild (FR-008)
+    let proxies = host_tool_registry.create_proxies(Some(cancel_token.clone()));
+    if !proxies.is_empty() {
+        guard.replace_host_tools(proxies);
+    }
+
     Ok(())
 }
 

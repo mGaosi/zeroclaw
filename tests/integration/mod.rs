@@ -4,6 +4,7 @@ mod api_config_file_test;
 mod api_config_test;
 mod api_conversation_test;
 mod api_gateway_feature_test;
+mod api_host_tools_test;
 mod api_lifecycle_test;
 mod api_observer_test;
 mod api_streaming_test;

@@ -47,6 +47,8 @@ pub struct Agent {
     security_summary: Option<String>,
     /// Autonomy level from config; controls safety prompt instructions.
     autonomy_level: crate::security::AutonomyLevel,
+    /// Number of built-in tools (first N entries in `self.tools`).
+    builtin_tool_count: usize,
 }
 
 pub struct AgentBuilder {
@@ -243,6 +245,7 @@ impl AgentBuilder {
         if let Some(ref allow_list) = allowed {
             tools.retain(|t| allow_list.iter().any(|name| name == t.name()));
         }
+        let builtin_tool_count = tools.len();
         let tool_specs = tools.iter().map(|tool| tool.spec()).collect();
 
         Ok(Agent {
@@ -290,6 +293,7 @@ impl AgentBuilder {
             autonomy_level: self
                 .autonomy_level
                 .unwrap_or(crate::security::AutonomyLevel::Supervised),
+            builtin_tool_count,
         })
     }
 }
@@ -314,6 +318,32 @@ impl Agent {
     /// Replace the agent's observer (used to wire in the callback registry).
     pub fn set_observer(&mut self, observer: Arc<dyn Observer>) {
         self.observer = observer;
+    }
+
+    /// Replace the full host-tool list, rebuild `self.tools` as built-in +
+    /// host, and regenerate `self.tool_specs`.
+    pub fn replace_host_tools(&mut self, host_tools: Vec<Box<dyn Tool>>) {
+        // Remove old host tools (everything after builtin_tool_count)
+        self.tools.truncate(self.builtin_tool_count);
+        // Append new host tools
+        for tool in host_tools {
+            self.tools.push(tool);
+        }
+        // Regenerate all specs
+        self.tool_specs = self.tools.iter().map(|t| t.spec()).collect();
+    }
+
+    /// Return names of built-in tools only (excludes host tools).
+    pub fn builtin_tool_names(&self) -> Vec<String> {
+        self.tools[..self.builtin_tool_count]
+            .iter()
+            .map(|t| t.name().to_string())
+            .collect()
+    }
+
+    /// Return names of all currently loaded tools (built-in + host).
+    pub fn tool_names(&self) -> Vec<String> {
+        self.tools.iter().map(|t| t.name().to_string()).collect()
     }
 
     /// Hydrate the agent with prior chat messages (e.g. from a session backend).
@@ -1774,5 +1804,107 @@ mod tests {
         // Should not panic
         let result = agent.turn_streaming("hi", tx, cancel, registry).await;
         assert!(result.is_ok());
+    }
+
+    // ── T018: Agent::replace_host_tools() ──
+
+    struct NamedMockTool(String);
+
+    #[async_trait]
+    impl Tool for NamedMockTool {
+        fn name(&self) -> &str {
+            &self.0
+        }
+        fn description(&self) -> &str {
+            "mock"
+        }
+        fn parameters_schema(&self) -> serde_json::Value {
+            serde_json::json!({"type":"object"})
+        }
+        async fn execute(&self, _args: serde_json::Value) -> Result<crate::tools::ToolResult> {
+            Ok(crate::tools::ToolResult {
+                success: true,
+                output: "ok".into(),
+                error: None,
+            })
+        }
+    }
+
+    #[test]
+    fn replace_host_tools_replaces_not_appends() {
+        let memory_cfg = crate::config::MemoryConfig {
+            backend: "none".into(),
+            ..crate::config::MemoryConfig::default()
+        };
+        let mem: Arc<dyn Memory> = Arc::from(
+            crate::memory::create_memory(&memory_cfg, std::path::Path::new("/tmp"), None)
+                .expect("memory"),
+        );
+        let observer: Arc<dyn Observer> = Arc::from(crate::observability::NoopObserver {});
+
+        let mut agent = Agent::builder()
+            .provider(Box::new(MockProvider {
+                responses: Mutex::new(vec![]),
+            }) as Box<dyn Provider>)
+            .tools(vec![Box::new(MockTool)])
+            .memory(mem)
+            .observer(observer)
+            .tool_dispatcher(Box::new(XmlToolDispatcher))
+            .workspace_dir(std::path::PathBuf::from("/tmp"))
+            .build()
+            .expect("build");
+
+        // Initially: 1 built-in tool ("echo")
+        assert_eq!(agent.tool_names(), vec!["echo"]);
+        assert_eq!(agent.builtin_tool_names(), vec!["echo"]);
+
+        // Add host tools A and B
+        let host1: Vec<Box<dyn Tool>> = vec![
+            Box::new(NamedMockTool("host_a".into())),
+            Box::new(NamedMockTool("host_b".into())),
+        ];
+        agent.replace_host_tools(host1);
+        assert_eq!(agent.tool_names(), vec!["echo", "host_a", "host_b"]);
+        assert_eq!(agent.builtin_tool_names(), vec!["echo"]);
+
+        // Replace with only host C — A and B should be gone
+        let host2: Vec<Box<dyn Tool>> = vec![Box::new(NamedMockTool("host_c".into()))];
+        agent.replace_host_tools(host2);
+        assert_eq!(agent.tool_names(), vec!["echo", "host_c"]);
+
+        // tool_specs should match current tool set
+        let spec_names: Vec<String> = agent.tool_specs.iter().map(|s| s.name.clone()).collect();
+        assert_eq!(spec_names, vec!["echo", "host_c"]);
+    }
+
+    #[test]
+    fn replace_host_tools_empty_removes_all_host_tools() {
+        let memory_cfg = crate::config::MemoryConfig {
+            backend: "none".into(),
+            ..crate::config::MemoryConfig::default()
+        };
+        let mem: Arc<dyn Memory> = Arc::from(
+            crate::memory::create_memory(&memory_cfg, std::path::Path::new("/tmp"), None)
+                .expect("memory"),
+        );
+        let observer: Arc<dyn Observer> = Arc::from(crate::observability::NoopObserver {});
+
+        let mut agent = Agent::builder()
+            .provider(Box::new(MockProvider {
+                responses: Mutex::new(vec![]),
+            }) as Box<dyn Provider>)
+            .tools(vec![Box::new(MockTool)])
+            .memory(mem)
+            .observer(observer)
+            .tool_dispatcher(Box::new(XmlToolDispatcher))
+            .workspace_dir(std::path::PathBuf::from("/tmp"))
+            .build()
+            .expect("build");
+
+        agent.replace_host_tools(vec![Box::new(NamedMockTool("host_x".into()))]);
+        assert_eq!(agent.tool_names().len(), 2);
+
+        agent.replace_host_tools(vec![]);
+        assert_eq!(agent.tool_names(), vec!["echo"]);
     }
 }

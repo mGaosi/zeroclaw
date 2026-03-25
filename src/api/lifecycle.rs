@@ -1,5 +1,6 @@
 use crate::agent::agent::Agent;
 use crate::api::config::RuntimeConfigManager;
+use crate::api::host_tools::HostToolRegistry;
 use crate::api::observer::ObserverCallbackRegistry;
 use crate::api::types::{ApiError, ConfigPatch};
 use crate::observability::MultiObserver;
@@ -37,6 +38,7 @@ pub struct AgentHandle {
     agent: Arc<Mutex<Agent>>,
     config_manager: Arc<RuntimeConfigManager>,
     observer_registry: Arc<ObserverCallbackRegistry>,
+    host_tool_registry: Arc<HostToolRegistry>,
     cancel_token: CancellationToken,
     config_rx: Arc<Mutex<tokio::sync::watch::Receiver<crate::config::Config>>>,
     initialized: bool,
@@ -61,6 +63,11 @@ impl AgentHandle {
     /// Get a reference to the observer registry.
     pub(crate) fn observer_registry(&self) -> Arc<ObserverCallbackRegistry> {
         self.observer_registry.clone()
+    }
+
+    /// Get a reference to the host tool registry.
+    pub(crate) fn host_tool_registry(&self) -> Arc<HostToolRegistry> {
+        self.host_tool_registry.clone()
     }
 
     /// Get the cancellation token.
@@ -104,10 +111,12 @@ impl AgentHandle {
         let config_manager = Arc::new(RuntimeConfigManager::new(config, config_path));
         let config_rx = config_manager.subscribe();
         config_rx.has_changed().ok();
+        let host_tool_registry = Arc::new(HostToolRegistry::new());
         Self {
             agent: Arc::new(Mutex::new(agent)),
             config_manager,
             observer_registry,
+            host_tool_registry,
             cancel_token: CancellationToken::new(),
             config_rx: Arc::new(Mutex::new(config_rx)),
             initialized: true,
@@ -176,11 +185,13 @@ pub async fn init(
     // Mark initial value as seen so first has_changed() returns false
     config_rx.has_changed().ok();
     let cancel_token = CancellationToken::new();
+    let host_tool_registry = Arc::new(HostToolRegistry::new());
 
     Ok(AgentHandle {
         agent: Arc::new(Mutex::new(agent)),
         config_manager,
         observer_registry,
+        host_tool_registry,
         cancel_token,
         config_rx: Arc::new(Mutex::new(config_rx)),
         initialized: true,
