@@ -142,6 +142,45 @@ impl ConfigPatch {
     }
 }
 
+// ── Host Tool Types ───────────────────────────────────────────────
+
+/// Definition of a host-side tool provided at registration time.
+///
+/// All fields are plain strings for FRB compatibility.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HostToolSpec {
+    /// Unique tool name (used in LLM function calling).
+    pub name: String,
+    /// Human-readable description shown to the LLM.
+    pub description: String,
+    /// JSON-encoded parameter schema (JSON Schema subset).
+    pub parameters_schema: String,
+    /// Per-tool timeout in seconds. Defaults to 30 if None.
+    pub timeout_seconds: Option<u32>,
+}
+
+/// Sent from ZeroClaw to the host app when the LLM invokes a host tool.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolRequest {
+    /// UUID v4 identifying this specific invocation.
+    pub request_id: String,
+    /// The name of the host tool to execute.
+    pub tool_name: String,
+    /// JSON-encoded arguments from the LLM.
+    pub arguments: String,
+}
+
+/// Sent from the host app to ZeroClaw with the tool execution result.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolResponse {
+    /// Must match the `request_id` from the corresponding `ToolRequest`.
+    pub request_id: String,
+    /// Tool output text (may be empty on failure).
+    pub output: String,
+    /// Whether the tool execution succeeded.
+    pub success: bool,
+}
+
 // ── T005: ObserverEventDto ────────────────────────────────────────
 
 /// FRB-compatible subset of `ObserverEvent`.
