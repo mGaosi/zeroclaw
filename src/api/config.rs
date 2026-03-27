@@ -47,6 +47,23 @@ impl RuntimeConfigManager {
             .validate()
             .map_err(|msg| ApiError::ValidationError { message: msg })?;
 
+        // Validate workspace_dir change before applying.
+        if let Some(ref dir) = patch.workspace_dir {
+            let path = std::path::Path::new(dir);
+            tokio::fs::create_dir_all(path)
+                .await
+                .map_err(|e| ApiError::ValidationError {
+                    message: format!("failed to create workspace directory '{dir}': {e}"),
+                })?;
+            let probe = path.join(".zeroclaw_write_probe");
+            tokio::fs::write(&probe, b"probe")
+                .await
+                .map_err(|e| ApiError::ValidationError {
+                    message: format!("workspace directory '{dir}' is not writable: {e}"),
+                })?;
+            let _ = tokio::fs::remove_file(&probe).await;
+        }
+
         let mut config = self.config.lock().await;
         let mut new_config = config.clone();
         patch.apply_to(&mut new_config);

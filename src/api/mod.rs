@@ -11,11 +11,13 @@ pub mod observer;
 pub mod types;
 
 pub use config::RuntimeConfigManager;
+pub use conversation::{delete_session, list_sessions, load_session_history};
 pub use host_tools::HostToolRegistry;
 pub use lifecycle::AgentHandle;
 pub use observer::ObserverCallbackRegistry;
 pub use types::{
-    ApiError, ConfigPatch, HostToolSpec, ObserverEventDto, StreamEvent, ToolRequest, ToolResponse,
+    ApiError, ConfigPatch, HostToolSpec, ObserverEventDto, SessionInfo, StreamEvent, ToolRequest,
+    ToolResponse,
 };
 
 // FRB StreamSink wrappers (available only with the `frb` feature)

@@ -3,9 +3,10 @@ use crate::api::config::RuntimeConfigManager;
 use crate::api::host_tools::HostToolRegistry;
 use crate::api::observer::ObserverCallbackRegistry;
 use crate::api::types::{ApiError, ConfigPatch};
+use crate::channels::session_backend::SessionBackend;
 use crate::observability::MultiObserver;
 use std::sync::Arc;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, RwLock};
 use tokio_util::sync::CancellationToken;
 
 /// Thin wrapper so an `Arc<ObserverCallbackRegistry>` can be stored inside a
@@ -42,6 +43,8 @@ pub struct AgentHandle {
     cancel_token: CancellationToken,
     config_rx: Arc<Mutex<tokio::sync::watch::Receiver<crate::config::Config>>>,
     initialized: bool,
+    session_backend: Arc<RwLock<Option<Arc<dyn SessionBackend>>>>,
+    current_session_key: Arc<Mutex<Option<String>>>,
 }
 
 impl AgentHandle {
@@ -87,6 +90,16 @@ impl AgentHandle {
         self.config_rx.clone()
     }
 
+    /// Get a reference to the session backend.
+    pub fn session_backend(&self) -> Arc<RwLock<Option<Arc<dyn SessionBackend>>>> {
+        self.session_backend.clone()
+    }
+
+    /// Get a reference to the current session key tracker.
+    pub fn current_session_key(&self) -> Arc<Mutex<Option<String>>> {
+        self.current_session_key.clone()
+    }
+
     /// Check if config has changed since last call. Returns true if a rebuild is needed.
     pub async fn has_config_changed(&self) -> bool {
         let rx = self.config_rx.lock().await;
@@ -120,6 +133,8 @@ impl AgentHandle {
             cancel_token: CancellationToken::new(),
             config_rx: Arc::new(Mutex::new(config_rx)),
             initialized: true,
+            session_backend: Arc::new(RwLock::new(None)),
+            current_session_key: Arc::new(Mutex::new(None)),
         }
     }
 }
@@ -160,6 +175,31 @@ pub async fn init(
         patch.apply_to(&mut config);
     }
 
+    // Validate workspace directory: ensure it exists and is writable.
+    let workspace_dir = &config.workspace_dir;
+    if !workspace_dir.as_os_str().is_empty() {
+        tokio::fs::create_dir_all(workspace_dir)
+            .await
+            .map_err(|e| ApiError::ValidationError {
+                message: format!(
+                    "failed to create workspace directory '{}': {e}",
+                    workspace_dir.display()
+                ),
+            })?;
+
+        // Verify write permissions by creating and removing a temp file.
+        let probe = workspace_dir.join(".zeroclaw_write_probe");
+        tokio::fs::write(&probe, b"probe")
+            .await
+            .map_err(|e| ApiError::ValidationError {
+                message: format!(
+                    "workspace directory '{}' is not writable: {e}",
+                    workspace_dir.display()
+                ),
+            })?;
+        let _ = tokio::fs::remove_file(&probe).await;
+    }
+
     // Build the agent
     let mut agent = Agent::from_config(&config)
         .await
@@ -179,6 +219,35 @@ pub async fn init(
     let multi = Arc::new(MultiObserver::new(vec![config_observer, registry_wrapper]));
     agent.set_observer(multi);
 
+    // Initialize session backend if persistence is enabled.
+    let session_backend: Option<Arc<dyn SessionBackend>> = if config
+        .channels_config
+        .session_persistence
+        && !config.workspace_dir.as_os_str().is_empty()
+    {
+        let backend_type = &config.channels_config.session_backend;
+        if backend_type == "sqlite" {
+            match crate::channels::session_sqlite::SqliteSessionBackend::new(&config.workspace_dir)
+            {
+                Ok(b) => Some(Arc::new(b)),
+                Err(e) => {
+                    tracing::warn!("Failed to initialize SQLite session backend: {e}");
+                    None
+                }
+            }
+        } else {
+            match crate::channels::session_store::SessionStore::new(&config.workspace_dir) {
+                Ok(b) => Some(Arc::new(b)),
+                Err(e) => {
+                    tracing::warn!("Failed to initialize JSONL session backend: {e}");
+                    None
+                }
+            }
+        }
+    } else {
+        None
+    };
+
     let config_path_buf = config_path.map(std::path::PathBuf::from);
     let config_manager = Arc::new(RuntimeConfigManager::new(config, config_path_buf));
     let config_rx = config_manager.subscribe();
@@ -195,6 +264,8 @@ pub async fn init(
         cancel_token,
         config_rx: Arc::new(Mutex::new(config_rx)),
         initialized: true,
+        session_backend: Arc::new(RwLock::new(session_backend)),
+        current_session_key: Arc::new(Mutex::new(None)),
     })
 }
 
