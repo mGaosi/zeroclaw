@@ -90,6 +90,8 @@ pub struct ConfigPatch {
     pub max_tool_iterations: Option<usize>,
     /// Maximum conversation history length.
     pub max_history_messages: Option<usize>,
+    /// Workspace directory override.
+    pub workspace_dir: Option<String>,
 }
 
 impl ConfigPatch {
@@ -108,6 +110,11 @@ impl ConfigPatch {
         if let Some(max) = self.max_tool_iterations {
             if max == 0 {
                 return Err("max_tool_iterations must be > 0".into());
+            }
+        }
+        if let Some(ref dir) = self.workspace_dir {
+            if dir.is_empty() {
+                return Err("workspace_dir must not be empty".into());
             }
         }
         Ok(())
@@ -139,7 +146,43 @@ impl ConfigPatch {
         if let Some(max) = self.max_history_messages {
             config.agent.max_history_messages = max;
         }
+        if let Some(ref dir) = self.workspace_dir {
+            config.workspace_dir = std::path::PathBuf::from(dir);
+        }
     }
+}
+
+// ── SessionInfo ───────────────────────────────────────────────────
+
+/// Read-only metadata about a persisted conversation session.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionInfo {
+    /// Unique session identifier.
+    pub key: String,
+    /// Total messages in the session.
+    pub message_count: usize,
+    /// ISO 8601 timestamp of session creation.
+    pub created_at: String,
+    /// ISO 8601 timestamp of last message.
+    pub last_activity: String,
+}
+
+/// Validate a session key: must be non-empty and contain only alphanumeric, `_`, or `-` characters.
+pub fn validate_session_key(key: &str) -> Result<(), ApiError> {
+    if key.is_empty() {
+        return Err(ApiError::ValidationError {
+            message: "session_key must not be empty".into(),
+        });
+    }
+    if !key
+        .chars()
+        .all(|c| c.is_alphanumeric() || c == '_' || c == '-')
+    {
+        return Err(ApiError::ValidationError {
+            message: "session_key must contain only alphanumeric, '_', or '-' characters".into(),
+        });
+    }
+    Ok(())
 }
 
 // ── Host Tool Types ───────────────────────────────────────────────
@@ -336,6 +379,7 @@ mod tests {
             system_prompt: None,
             max_tool_iterations: Some(5),
             max_history_messages: None,
+            workspace_dir: None,
         };
 
         patch.apply_to(&mut config);
@@ -360,6 +404,7 @@ mod tests {
             system_prompt: None,
             max_tool_iterations: Some(10),
             max_history_messages: Some(50),
+            workspace_dir: None,
         };
 
         patch.apply_to(&mut config);
@@ -417,6 +462,60 @@ mod tests {
     fn config_patch_validate_accepts_empty_patch() {
         let patch = ConfigPatch::default();
         assert!(patch.validate().is_ok());
+    }
+
+    // ── workspace_dir validation and apply ──
+
+    #[test]
+    fn config_patch_validate_rejects_empty_workspace_dir() {
+        let patch = ConfigPatch {
+            workspace_dir: Some(String::new()),
+            ..Default::default()
+        };
+        assert!(patch.validate().is_err());
+    }
+
+    #[test]
+    fn config_patch_validate_accepts_valid_workspace_dir() {
+        let patch = ConfigPatch {
+            workspace_dir: Some("/tmp/test_workspace".into()),
+            ..Default::default()
+        };
+        assert!(patch.validate().is_ok());
+    }
+
+    #[test]
+    fn config_patch_apply_to_sets_workspace_dir() {
+        let mut config = crate::config::Config::default();
+        let patch = ConfigPatch {
+            workspace_dir: Some("/custom/workspace".into()),
+            ..Default::default()
+        };
+        patch.apply_to(&mut config);
+        assert_eq!(
+            config.workspace_dir,
+            std::path::PathBuf::from("/custom/workspace")
+        );
+    }
+
+    // ── validate_session_key ──
+
+    #[test]
+    fn validate_session_key_rejects_empty() {
+        assert!(validate_session_key("").is_err());
+    }
+
+    #[test]
+    fn validate_session_key_rejects_path_separator() {
+        assert!(validate_session_key("chat/evil").is_err());
+        assert!(validate_session_key("../escape").is_err());
+    }
+
+    #[test]
+    fn validate_session_key_accepts_valid() {
+        assert!(validate_session_key("api_default").is_ok());
+        assert!(validate_session_key("chat-123").is_ok());
+        assert!(validate_session_key("MySession42").is_ok());
     }
 
     // ── T047: ObserverEventDto conversion filters internal events ──

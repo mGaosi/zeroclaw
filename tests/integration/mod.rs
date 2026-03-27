@@ -7,6 +7,7 @@ mod api_gateway_feature_test;
 mod api_host_tools_test;
 mod api_lifecycle_test;
 mod api_observer_test;
+mod api_session_test;
 mod api_streaming_test;
 mod channel_matrix;
 mod channel_routing;

@@ -84,7 +84,7 @@ async fn update_config_during_inflight_does_not_affect_current() {
 
     // Start a message and collect events immediately
     let (tx, rx) = tokio::sync::mpsc::channel(32);
-    conversation::send_message(&handle, "hello".into(), tx).unwrap();
+    conversation::send_message(&handle, "hello".into(), None, tx).unwrap();
 
     // Collect events — should get the response from original provider
     let events = collect_events(rx).await;

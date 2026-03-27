@@ -1,6 +1,6 @@
 # zeroclaw Development Guidelines
 
-Auto-generated from all feature plans. Last updated: 2026-03-25
+Auto-generated from all feature plans. Last updated: 2026-03-27
 
 ## Active Technologies
 - Rust stable, edition 2021 + tokio (async runtime), serde/toml (config), reqwest/rustls (HTTP), rusqlite/bundled (storage), flutter_rust_bridge 2.11 (optional FRB FFI), axum/tower/tower-http/rust-embed (gateway, optional) (001-android-port-streaming)
@@ -11,6 +11,10 @@ Auto-generated from all feature plans. Last updated: 2026-03-25
 - N/A — in-memory registry only (002-host-tool-registration)
 - Rust 1.87, edition 2021 + tokio (async runtime), serde/toml (config), axum (gateway), reqwest (HTTP), ring/hmac/sha2 (crypto). Channel-specific: lettre (email), async-imap, tokio-tungstenite (WebSocket), nostr-sdk, matrix-sdk, prost (protobuf), wa-rs-* (WhatsApp Web) (003-channel-hardware-android-api)
 - SQLite (session persistence), optional PostgreSQL (memory-postgres feature) (003-channel-hardware-android-api)
+- Rust (stable, edition 2021) + tokio (async runtime), rusqlite (SQLite, existing), serde/toml (config), flutter_rust_bridge (FRB, optional feature) (004-api-workspace-session-persist)
+- SQLite (WAL mode, FTS5) for sessions; existing `SessionBackend` trait with JSONL and SQLite implementations (004-api-workspace-session-persist)
+- Rust (stable, edition 2021) + tokio 1.50 (async runtime), rusqlite 0.37 (SQLite, bundled), serde/toml (config), flutter_rust_bridge 2.11 (FRB, optional feature), chrono 0.4 (timestamps), thiserror 2.0 (error derives) (004-api-workspace-session-persist)
+- SQLite (WAL mode, FTS5) and JSONL for sessions; existing `SessionBackend` trait with both implementations (004-api-workspace-session-persist)
 
 - Rust (stable, edition 2021) + tokio (async runtime), serde/toml (config), flutter_rust_bridge (FFI to Dart/Flutter); axum/tower/rust-embed (gateway-only, conditional) (001-android-port-streaming)
 
@@ -30,9 +34,9 @@ cargo test; cargo clippy
 Rust (stable, edition 2021): Follow standard conventions
 
 ## Recent Changes
+- 004-api-workspace-session-persist: Added Rust (stable, edition 2021) + tokio 1.50 (async runtime), rusqlite 0.37 (SQLite, bundled), serde/toml (config), flutter_rust_bridge 2.11 (FRB, optional feature), chrono 0.4 (timestamps), thiserror 2.0 (error derives)
+- 004-api-workspace-session-persist: Added Rust (stable, edition 2021) + tokio (async runtime), rusqlite (SQLite, existing), serde/toml (config), flutter_rust_bridge (FRB, optional feature)
 - 003-channel-hardware-android-api: Added Rust 1.87, edition 2021 + tokio (async runtime), serde/toml (config), axum (gateway), reqwest (HTTP), ring/hmac/sha2 (crypto). Channel-specific: lettre (email), async-imap, tokio-tungstenite (WebSocket), nostr-sdk, matrix-sdk, prost (protobuf), wa-rs-* (WhatsApp Web)
-- 002-host-tool-registration: Added Rust 1.87, edition 2021 + tokio 1.50 (async runtime, mpsc channels), serde/serde_json (serialization), parking_lot (synchronous Mutex), async-trait, flutter_rust_bridge (FRB, behind `frb` feature flag)
-- 001-android-port-streaming: Added Rust (stable, edition 2021) + tokio (async runtime), serde/toml (config), reqwest+rustls (HTTP), rusqlite+bundled (storage), flutter_rust_bridge 2.11 (FFI, optional `frb` feature)
 
 
 <!-- MANUAL ADDITIONS START -->

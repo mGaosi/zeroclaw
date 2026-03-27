@@ -72,6 +72,14 @@ impl SessionStore {
             .append(true)
             .open(&path)?;
 
+        // Enforce owner-only permissions on session files (defense-in-depth).
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let perms = std::fs::Permissions::from_mode(0o600);
+            std::fs::set_permissions(&path, perms)?;
+        }
+
         let json = serde_json::to_string(message)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
 
