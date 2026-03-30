@@ -21,7 +21,7 @@ async fn observer_receives_llm_events_during_send() {
 
     // Send a message
     let (tx, rx) = tokio::sync::mpsc::channel(32);
-    conversation::send_message(&handle, "hello".into(), None, tx).unwrap();
+    conversation::send_message(&handle, "hello".into(), None, None, tx).unwrap();
 
     // Wait for message to complete
     let _events = collect_events(rx).await;
@@ -61,7 +61,7 @@ async fn unregister_stops_event_delivery() {
 
     // Send first message to verify observer receives events
     let (tx1, rx1) = tokio::sync::mpsc::channel(32);
-    conversation::send_message(&handle, "first".into(), None, tx1).unwrap();
+    conversation::send_message(&handle, "first".into(), None, None, tx1).unwrap();
     let _events1 = collect_events(rx1).await;
     tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
 
@@ -76,7 +76,7 @@ async fn unregister_stops_event_delivery() {
 
     // Send second message
     let (tx2, rx2) = tokio::sync::mpsc::channel(32);
-    conversation::send_message(&handle, "second".into(), None, tx2).unwrap();
+    conversation::send_message(&handle, "second".into(), None, None, tx2).unwrap();
     let _events2 = collect_events(rx2).await;
     tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
 
@@ -104,7 +104,7 @@ async fn multiple_observers_independent() {
 
     // Send a message
     let (tx, rx) = tokio::sync::mpsc::channel(32);
-    conversation::send_message(&handle, "hello".into(), None, tx).unwrap();
+    conversation::send_message(&handle, "hello".into(), None, None, tx).unwrap();
     let _events = collect_events(rx).await;
     tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 

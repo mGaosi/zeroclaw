@@ -82,6 +82,36 @@ impl SqliteSessionBackend {
             let _ = conn.execute("ALTER TABLE session_metadata ADD COLUMN name TEXT", []);
         }
 
+        // Migration: add workspace_dir column to existing databases
+        let has_workspace_dir: bool = conn
+            .query_row(
+                "SELECT COUNT(*) > 0 FROM pragma_table_info('session_metadata') WHERE name = 'workspace_dir'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(false);
+        if !has_workspace_dir {
+            let _ = conn.execute(
+                "ALTER TABLE session_metadata ADD COLUMN workspace_dir TEXT",
+                [],
+            );
+        }
+
+        // Migration: add config_json column for per-session state persistence
+        let has_config_json: bool = conn
+            .query_row(
+                "SELECT COUNT(*) > 0 FROM pragma_table_info('session_metadata') WHERE name = 'config_json'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(false);
+        if !has_config_json {
+            let _ = conn.execute(
+                "ALTER TABLE session_metadata ADD COLUMN config_json TEXT",
+                [],
+            );
+        }
+
         // Enforce owner-only permissions on the database file (defense-in-depth).
         #[cfg(unix)]
         {
@@ -247,7 +277,7 @@ impl SessionBackend for SqliteSessionBackend {
     fn list_sessions_with_metadata(&self) -> Vec<SessionMetadata> {
         let conn = self.conn.lock();
         let mut stmt = match conn.prepare(
-            "SELECT session_key, created_at, last_activity, message_count, name
+            "SELECT session_key, created_at, last_activity, message_count, name, workspace_dir
              FROM session_metadata ORDER BY last_activity DESC",
         ) {
             Ok(s) => s,
@@ -260,6 +290,7 @@ impl SessionBackend for SqliteSessionBackend {
             let activity_str: String = row.get(2)?;
             let count: i64 = row.get(3)?;
             let name: Option<String> = row.get(4)?;
+            let workspace_dir: Option<String> = row.get(5)?;
 
             let created = DateTime::parse_from_rfc3339(&created_str)
                 .map(|dt| dt.with_timezone(&Utc))
@@ -272,6 +303,7 @@ impl SessionBackend for SqliteSessionBackend {
             Ok(SessionMetadata {
                 key,
                 name,
+                workspace_dir,
                 created_at: created,
                 last_activity: activity,
                 message_count: count as usize,
@@ -365,6 +397,52 @@ impl SessionBackend for SqliteSessionBackend {
         .map_err(std::io::Error::other)
     }
 
+    fn set_session_workspace(&self, session_key: &str, dir: &str) -> std::io::Result<()> {
+        let conn = self.conn.lock();
+        let dir_val = if dir.is_empty() { None } else { Some(dir) };
+        conn.execute(
+            "UPDATE session_metadata SET workspace_dir = ?1 WHERE session_key = ?2",
+            params![dir_val, session_key],
+        )
+        .map_err(std::io::Error::other)?;
+        Ok(())
+    }
+
+    fn get_session_workspace(&self, session_key: &str) -> std::io::Result<Option<String>> {
+        let conn = self.conn.lock();
+        conn.query_row(
+            "SELECT workspace_dir FROM session_metadata WHERE session_key = ?1",
+            params![session_key],
+            |row| row.get(0),
+        )
+        .map_err(std::io::Error::other)
+    }
+
+    fn set_session_config(&self, session_key: &str, config_json: &str) -> std::io::Result<()> {
+        let conn = self.conn.lock();
+        let val = if config_json.is_empty() {
+            None
+        } else {
+            Some(config_json)
+        };
+        conn.execute(
+            "UPDATE session_metadata SET config_json = ?1 WHERE session_key = ?2",
+            params![val, session_key],
+        )
+        .map_err(std::io::Error::other)?;
+        Ok(())
+    }
+
+    fn get_session_config(&self, session_key: &str) -> std::io::Result<Option<String>> {
+        let conn = self.conn.lock();
+        conn.query_row(
+            "SELECT config_json FROM session_metadata WHERE session_key = ?1",
+            params![session_key],
+            |row| row.get(0),
+        )
+        .map_err(std::io::Error::other)
+    }
+
     fn search(&self, query: &SessionQuery) -> Vec<SessionMetadata> {
         let Some(keyword) = &query.keyword else {
             return self.list_sessions_with_metadata();
@@ -401,16 +479,18 @@ impl SessionBackend for SqliteSessionBackend {
         keys.iter()
             .filter_map(|key| {
                 conn.query_row(
-                    "SELECT created_at, last_activity, message_count, name FROM session_metadata WHERE session_key = ?1",
+                    "SELECT created_at, last_activity, message_count, name, workspace_dir FROM session_metadata WHERE session_key = ?1",
                     params![key],
                     |row| {
                         let created_str: String = row.get(0)?;
                         let activity_str: String = row.get(1)?;
                         let count: i64 = row.get(2)?;
                         let name: Option<String> = row.get(3)?;
+                        let workspace_dir: Option<String> = row.get(4)?;
                         Ok(SessionMetadata {
                             key: key.clone(),
                             name,
+                            workspace_dir,
                             created_at: DateTime::parse_from_rfc3339(&created_str)
                                 .map(|dt| dt.with_timezone(&Utc))
                                 .unwrap_or_else(|_| Utc::now()),

@@ -58,7 +58,7 @@ async fn shutdown_cancels_inflight_work() {
 
     // Start a message
     let (tx, _rx) = tokio::sync::mpsc::channel(16);
-    let _ = zeroclaw::api::conversation::send_message(&handle, "hello".into(), None, tx);
+    let _ = zeroclaw::api::conversation::send_message(&handle, "hello".into(), None, None, tx);
 
     // Immediately shutdown — should cancel the in-flight work
     let result = lifecycle::shutdown(handle);

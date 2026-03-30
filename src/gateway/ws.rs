@@ -63,6 +63,8 @@ pub struct WsQuery {
     pub session_id: Option<String>,
     /// Optional human-readable name for the session.
     pub name: Option<String>,
+    /// Optional per-session workspace directory override.
+    pub workspace_dir: Option<String>,
 }
 
 /// Extract a bearer token from WebSocket-compatible sources.
@@ -145,8 +147,17 @@ pub async fn handle_ws_chat(
 
     let session_id = params.session_id;
     let session_name = params.name;
-    ws.on_upgrade(move |socket| handle_socket(socket, state, session_id, session_name))
-        .into_response()
+    let session_workspace_dir = params.workspace_dir;
+    ws.on_upgrade(move |socket| {
+        handle_socket(
+            socket,
+            state,
+            session_id,
+            session_name,
+            session_workspace_dir,
+        )
+    })
+    .into_response()
 }
 
 /// Gateway session key prefix to avoid collisions with channel sessions.
@@ -157,6 +168,7 @@ async fn handle_socket(
     state: AppState,
     session_id: Option<String>,
     session_name: Option<String>,
+    session_workspace_dir: Option<String>,
 ) {
     let (mut sender, mut receiver) = socket.split();
 
@@ -198,6 +210,12 @@ async fn handle_socket(
         if effective_name.is_none() {
             effective_name = backend.get_session_name(&session_key).unwrap_or(None);
         }
+        // Set per-session workspace directory if provided
+        if let Some(ref dir) = session_workspace_dir {
+            if !dir.is_empty() {
+                let _ = backend.set_session_workspace(&session_key, dir);
+            }
+        }
     }
 
     // Send session_start message to client
@@ -209,6 +227,11 @@ async fn handle_socket(
     });
     if let Some(ref name) = effective_name {
         session_start["name"] = serde_json::Value::String(name.clone());
+    }
+    if let Some(ref dir) = session_workspace_dir {
+        if !dir.is_empty() {
+            session_start["workspace_dir"] = serde_json::Value::String(dir.clone());
+        }
     }
     let _ = sender
         .send(Message::Text(session_start.to_string().into()))
@@ -261,6 +284,7 @@ async fn handle_socket(
         if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(text) {
             if parsed["type"].as_str() == Some("message") {
                 let content = parsed["content"].as_str().unwrap_or("").to_string();
+                let content = enrich_content_with_multimodal(&state, &parsed, content).await;
                 if !content.is_empty() {
                     // Persist user message
                     if let Some(ref backend) = state.session_backend {
@@ -277,6 +301,19 @@ async fn handle_socket(
     while let Some(msg) = receiver.next().await {
         let msg = match msg {
             Ok(Message::Text(text)) => text,
+            Ok(Message::Binary(bin)) => {
+                // Binary frame: treat as audio data for transcription
+                let content = transcribe_binary_audio(&state, &bin).await;
+                if !content.is_empty() {
+                    if let Some(ref backend) = state.session_backend {
+                        let user_msg = crate::providers::ChatMessage::user(&content);
+                        let _ = backend.append(&session_key, &user_msg);
+                    }
+                    process_chat_message(&state, &mut agent, &mut sender, &content, &session_key)
+                        .await;
+                }
+                continue;
+            }
             Ok(Message::Close(_)) | Err(_) => break,
             _ => continue,
         };
@@ -297,6 +334,7 @@ async fn handle_socket(
         }
 
         let content = parsed["content"].as_str().unwrap_or("").to_string();
+        let content = enrich_content_with_multimodal(&state, &parsed, content).await;
         if content.is_empty() {
             continue;
         }
@@ -309,6 +347,96 @@ async fn handle_socket(
 
         process_chat_message(&state, &mut agent, &mut sender, &content, &session_key).await;
     }
+}
+
+/// Enrich message content with multimodal data from the parsed JSON.
+///
+/// Handles two optional fields:
+/// - `images`: array of data-URI strings → appended as `[IMAGE:...]` markers
+/// - `audio`: base64-encoded audio bytes → transcribed via configured STT provider
+async fn enrich_content_with_multimodal(
+    state: &AppState,
+    parsed: &serde_json::Value,
+    mut content: String,
+) -> String {
+    // Inject image markers
+    if let Some(images) = parsed["images"].as_array() {
+        use std::fmt::Write;
+        for img in images {
+            if let Some(uri) = img.as_str() {
+                if !uri.is_empty() {
+                    let _ = write!(content, "\n[IMAGE:{uri}]");
+                }
+            }
+        }
+    }
+
+    // Transcribe inline audio (base64) if present
+    if let Some(audio_b64) = parsed["audio"].as_str() {
+        if !audio_b64.is_empty() {
+            let file_name = parsed["audio_filename"]
+                .as_str()
+                .unwrap_or("audio.ogg")
+                .to_string();
+            match base64_decode_and_transcribe(state, audio_b64, &file_name).await {
+                Ok(transcript) => {
+                    if content.is_empty() {
+                        content = transcript;
+                    } else {
+                        content = format!("{content}\n\n[Voice transcript]: {transcript}");
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to transcribe inline audio: {e}");
+                }
+            }
+        }
+    }
+
+    content
+}
+
+/// Transcribe a raw binary WebSocket frame as audio.
+async fn transcribe_binary_audio(state: &AppState, data: &[u8]) -> String {
+    if data.is_empty() {
+        return String::new();
+    }
+    let config = state.config.lock().clone();
+    if !config.transcription.enabled {
+        tracing::debug!("Received binary WebSocket frame but transcription is disabled");
+        return String::new();
+    }
+    match crate::channels::transcription::transcribe_audio(
+        data.to_vec(),
+        "audio.ogg",
+        &config.transcription,
+    )
+    .await
+    {
+        Ok(text) => text,
+        Err(e) => {
+            tracing::warn!("Failed to transcribe binary audio frame: {e}");
+            String::new()
+        }
+    }
+}
+
+/// Decode base64 audio and transcribe it.
+async fn base64_decode_and_transcribe(
+    state: &AppState,
+    audio_b64: &str,
+    file_name: &str,
+) -> anyhow::Result<String> {
+    use base64::{engine::general_purpose::STANDARD, Engine as _};
+
+    let config = state.config.lock().clone();
+    if !config.transcription.enabled {
+        anyhow::bail!("Transcription is not enabled in config");
+    }
+
+    let audio_bytes = STANDARD.decode(audio_b64)?;
+    crate::channels::transcription::transcribe_audio(audio_bytes, file_name, &config.transcription)
+        .await
 }
 
 /// Process a single chat message through the agent and send the response.
@@ -347,6 +475,30 @@ async fn process_chat_message(
                 "full_response": response,
             });
             let _ = sender.send(Message::Text(done.to_string().into())).await;
+
+            // Optionally synthesize TTS audio and send as an audio event
+            let config = state.config.lock().clone();
+            if config.tts.enabled {
+                if let Ok(tts_manager) = crate::channels::tts::TtsManager::new(&config.tts) {
+                    match tts_manager.synthesize(&response).await {
+                        Ok(audio_bytes) => {
+                            use base64::{engine::general_purpose::STANDARD, Engine as _};
+                            let audio_b64 = STANDARD.encode(&audio_bytes);
+                            let audio_event = serde_json::json!({
+                                "type": "audio",
+                                "format": config.tts.default_format,
+                                "data": audio_b64,
+                            });
+                            let _ = sender
+                                .send(Message::Text(audio_event.to_string().into()))
+                                .await;
+                        }
+                        Err(e) => {
+                            tracing::debug!("TTS synthesis skipped for WS response: {e}");
+                        }
+                    }
+                }
+            }
 
             // Broadcast agent_end event
             let _ = state.event_tx.send(serde_json::json!({

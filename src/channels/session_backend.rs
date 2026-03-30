@@ -14,6 +14,8 @@ pub struct SessionMetadata {
     pub key: String,
     /// Optional human-readable name (e.g. `eyrie-commander-briefing`).
     pub name: Option<String>,
+    /// Optional per-session workspace directory override.
+    pub workspace_dir: Option<String>,
     /// When the session was first created.
     pub created_at: DateTime<Utc>,
     /// When the last message was appended.
@@ -57,6 +59,7 @@ pub trait SessionBackend: Send + Sync {
                 SessionMetadata {
                     key,
                     name: None,
+                    workspace_dir: None,
                     created_at: Utc::now(),
                     last_activity: Utc::now(),
                     message_count: messages.len(),
@@ -94,6 +97,28 @@ pub trait SessionBackend: Send + Sync {
     fn get_session_name(&self, _session_key: &str) -> std::io::Result<Option<String>> {
         Ok(None)
     }
+
+    /// Set or update the per-session workspace directory override.
+    fn set_session_workspace(&self, _session_key: &str, _dir: &str) -> std::io::Result<()> {
+        Ok(())
+    }
+
+    /// Get the per-session workspace directory override (if set).
+    fn get_session_workspace(&self, _session_key: &str) -> std::io::Result<Option<String>> {
+        Ok(None)
+    }
+
+    /// Store arbitrary JSON metadata for a session (e.g. system prompt override,
+    /// model/temperature per-session config). Backends that support this persist
+    /// the data; the default is a no-op.
+    fn set_session_config(&self, _session_key: &str, _config_json: &str) -> std::io::Result<()> {
+        Ok(())
+    }
+
+    /// Retrieve per-session JSON config metadata (if set).
+    fn get_session_config(&self, _session_key: &str) -> std::io::Result<Option<String>> {
+        Ok(None)
+    }
 }
 
 #[cfg(test)]
@@ -105,6 +130,7 @@ mod tests {
         let meta = SessionMetadata {
             key: "test".into(),
             name: None,
+            workspace_dir: None,
             created_at: Utc::now(),
             last_activity: Utc::now(),
             message_count: 5,
