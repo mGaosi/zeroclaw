@@ -84,7 +84,7 @@ async fn host_tool_full_round_trip() {
 
     // Send a message that should trigger the host tool
     let (tx, rx) = mpsc::channel::<StreamEvent>(64);
-    conversation::send_message(&handle, "say hello to the world".into(), None, tx).unwrap();
+    conversation::send_message(&handle, "say hello to the world".into(), None, None, tx).unwrap();
 
     // Wait for the tool request
     let tool_req = responder.await.unwrap();
@@ -175,7 +175,7 @@ async fn dynamic_registration_round_trip() {
 
     // Send message 1 (triggers tool_alpha)
     let (tx1, rx1) = mpsc::channel::<StreamEvent>(64);
-    conversation::send_message(&handle, "use alpha".into(), None, tx1).unwrap();
+    conversation::send_message(&handle, "use alpha".into(), None, None, tx1).unwrap();
 
     // Handle the tool request
     let req1 = handler_rx.recv().await.unwrap();
@@ -201,7 +201,7 @@ async fn dynamic_registration_round_trip() {
 
     // Send message 2 (triggers tool_beta)
     let (tx2, rx2) = mpsc::channel::<StreamEvent>(64);
-    conversation::send_message(&handle, "use beta".into(), None, tx2).unwrap();
+    conversation::send_message(&handle, "use beta".into(), None, None, tx2).unwrap();
 
     let req2 = handler_rx.recv().await.unwrap();
     assert_eq!(req2.tool_name, "tool_beta");
@@ -255,7 +255,7 @@ async fn streaming_events_order_for_host_tool() {
     host_tools::register_tool(&handle, valid_spec("stream_tool")).unwrap();
 
     let (tx, rx) = mpsc::channel::<StreamEvent>(64);
-    conversation::send_message(&handle, "trigger stream_tool".into(), None, tx).unwrap();
+    conversation::send_message(&handle, "trigger stream_tool".into(), None, None, tx).unwrap();
 
     let req = handler_rx.recv().await.unwrap();
     host_tools::submit_tool_response(
@@ -359,7 +359,7 @@ async fn config_rebuild_preserves_host_tools() {
 
     // First use
     let (tx1, rx1) = mpsc::channel::<StreamEvent>(64);
-    conversation::send_message(&handle, "trigger rebuild_tool".into(), None, tx1).unwrap();
+    conversation::send_message(&handle, "trigger rebuild_tool".into(), None, None, tx1).unwrap();
 
     let req1 = handler_rx.recv().await.unwrap();
     assert_eq!(req1.tool_name, "rebuild_tool");
@@ -383,7 +383,14 @@ async fn config_rebuild_preserves_host_tools() {
 
     // Second use — tool should still work
     let (tx2, rx2) = mpsc::channel::<StreamEvent>(64);
-    conversation::send_message(&handle, "trigger rebuild_tool again".into(), None, tx2).unwrap();
+    conversation::send_message(
+        &handle,
+        "trigger rebuild_tool again".into(),
+        None,
+        None,
+        tx2,
+    )
+    .unwrap();
 
     let req2 = handler_rx.recv().await.unwrap();
     assert_eq!(req2.tool_name, "rebuild_tool");

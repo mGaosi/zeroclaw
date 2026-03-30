@@ -82,7 +82,14 @@ async fn test_send_message_persists_conversation() {
     .await;
 
     let (tx, rx) = tokio::sync::mpsc::channel(64);
-    conversation::send_message(&handle, "hello".into(), Some("test_session".into()), tx).unwrap();
+    conversation::send_message(
+        &handle,
+        "hello".into(),
+        Some("test_session".into()),
+        None,
+        tx,
+    )
+    .unwrap();
     let events = collect_events(rx).await;
     assert!(events
         .iter()
@@ -106,7 +113,7 @@ async fn test_default_session_key() {
     let handle = build_session_handle(tmp.path(), vec![text_response("hi")]).await;
 
     let (tx, rx) = tokio::sync::mpsc::channel(64);
-    conversation::send_message(&handle, "hello".into(), None, tx).unwrap();
+    conversation::send_message(&handle, "hello".into(), None, None, tx).unwrap();
     let _events = collect_events(rx).await;
 
     tokio::time::sleep(std::time::Duration::from_millis(200)).await;
@@ -125,7 +132,8 @@ async fn test_invalid_session_key_rejected() {
     let handle = build_session_handle(tmp.path(), vec![text_response("hi")]).await;
 
     let (tx, _rx) = tokio::sync::mpsc::channel(64);
-    let result = conversation::send_message(&handle, "hello".into(), Some("../evil".into()), tx);
+    let result =
+        conversation::send_message(&handle, "hello".into(), Some("../evil".into()), None, tx);
     assert!(matches!(result, Err(ApiError::ValidationError { .. })));
 }
 
@@ -141,13 +149,13 @@ async fn test_session_switch_clears_and_reloads() {
 
     // Send to chat_1.
     let (tx1, rx1) = tokio::sync::mpsc::channel(64);
-    conversation::send_message(&handle, "msg_a".into(), Some("chat_1".into()), tx1).unwrap();
+    conversation::send_message(&handle, "msg_a".into(), Some("chat_1".into()), None, tx1).unwrap();
     let _events1 = collect_events(rx1).await;
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
     // Send to chat_2 — should not contain chat_1's history.
     let (tx2, rx2) = tokio::sync::mpsc::channel(64);
-    conversation::send_message(&handle, "msg_b".into(), Some("chat_2".into()), tx2).unwrap();
+    conversation::send_message(&handle, "msg_b".into(), Some("chat_2".into()), None, tx2).unwrap();
     let _events2 = collect_events(rx2).await;
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
@@ -175,7 +183,7 @@ async fn test_list_sessions_returns_metadata() {
     // Create 3 sessions.
     for key in &["session_a", "session_b", "session_c"] {
         let (tx, rx) = tokio::sync::mpsc::channel(64);
-        conversation::send_message(&handle, "hi".into(), Some(key.to_string()), tx).unwrap();
+        conversation::send_message(&handle, "hi".into(), Some(key.to_string()), None, tx).unwrap();
         let _ = collect_events(rx).await;
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     }
@@ -195,7 +203,8 @@ async fn test_load_session_history() {
     let handle = build_session_handle(tmp.path(), vec![text_response("world")]).await;
 
     let (tx, rx) = tokio::sync::mpsc::channel(64);
-    conversation::send_message(&handle, "hello".into(), Some("load_test".into()), tx).unwrap();
+    conversation::send_message(&handle, "hello".into(), Some("load_test".into()), None, tx)
+        .unwrap();
     let _ = collect_events(rx).await;
     tokio::time::sleep(std::time::Duration::from_millis(200)).await;
 
@@ -224,7 +233,8 @@ async fn test_delete_session() {
     let handle = build_session_handle(tmp.path(), vec![text_response("bye")]).await;
 
     let (tx, rx) = tokio::sync::mpsc::channel(64);
-    conversation::send_message(&handle, "hello".into(), Some("to_delete".into()), tx).unwrap();
+    conversation::send_message(&handle, "hello".into(), Some("to_delete".into()), None, tx)
+        .unwrap();
     let _ = collect_events(rx).await;
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
@@ -278,7 +288,7 @@ async fn test_runtime_workspace_change() {
 
     // Send to workspace A.
     let (tx, rx) = tokio::sync::mpsc::channel(64);
-    conversation::send_message(&handle, "msg".into(), Some("ws_test".into()), tx).unwrap();
+    conversation::send_message(&handle, "msg".into(), Some("ws_test".into()), None, tx).unwrap();
     let _ = collect_events(rx).await;
     tokio::time::sleep(std::time::Duration::from_millis(200)).await;
     assert!(tmp_a.path().join("sessions").join("ws_test.jsonl").exists());
@@ -300,7 +310,8 @@ async fn test_runtime_workspace_change() {
 
     // Send to workspace B.
     let (tx2, rx2) = tokio::sync::mpsc::channel(64);
-    conversation::send_message(&handle, "msg2".into(), Some("ws_test_b".into()), tx2).unwrap();
+    conversation::send_message(&handle, "msg2".into(), Some("ws_test_b".into()), None, tx2)
+        .unwrap();
     let _ = collect_events(rx2).await;
     tokio::time::sleep(std::time::Duration::from_millis(200)).await;
 

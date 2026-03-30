@@ -8,6 +8,7 @@ use axum::{
     http::{header, HeaderMap, StatusCode},
     response::{IntoResponse, Json},
 };
+use base64::Engine as _;
 use serde::Deserialize;
 
 const MASKED_SECRET: &str = "***MASKED***";
@@ -1289,6 +1290,9 @@ pub async fn handle_api_sessions_list(
             if let Some(name) = meta.name {
                 entry["name"] = serde_json::Value::String(name);
             }
+            if let Some(workspace_dir) = meta.workspace_dir {
+                entry["workspace_dir"] = serde_json::Value::String(workspace_dir);
+            }
             Some(entry)
         })
         .collect();
@@ -1375,6 +1379,145 @@ pub async fn handle_api_session_rename(
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({"error": format!("Failed to rename session: {e}")})),
+        )
+            .into_response(),
+    }
+}
+
+// ── Voice API handlers ───────────────────────────────────────────
+
+/// Request body for POST /api/transcribe
+#[derive(Deserialize)]
+pub struct TranscribeBody {
+    /// Base64-encoded audio data.
+    pub audio: String,
+    /// Original filename with extension for format detection (e.g. "voice.ogg").
+    #[serde(default = "default_audio_filename")]
+    pub filename: String,
+}
+
+fn default_audio_filename() -> String {
+    "audio.ogg".to_string()
+}
+
+/// POST /api/transcribe — transcribe audio to text via configured STT provider.
+///
+/// Accepts JSON `{ "audio": "<base64>", "filename": "voice.ogg" }`.
+/// Returns `{ "text": "transcribed text" }`.
+pub async fn handle_api_transcribe(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<TranscribeBody>,
+) -> impl IntoResponse {
+    if let Err(e) = require_auth(&state, &headers) {
+        return e.into_response();
+    }
+
+    let config = state.config.lock().clone();
+    if !config.transcription.enabled {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({"error": "Transcription is not enabled. Set [transcription] enabled = true in config."})),
+        ).into_response();
+    }
+
+    let audio_bytes = match base64::engine::general_purpose::STANDARD.decode(&body.audio) {
+        Ok(b) => b,
+        Err(e) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"error": format!("Invalid base64 audio data: {e}")})),
+            )
+                .into_response();
+        }
+    };
+
+    match crate::channels::transcription::transcribe_audio(
+        audio_bytes,
+        &body.filename,
+        &config.transcription,
+    )
+    .await
+    {
+        Ok(text) => Json(serde_json::json!({"text": text})).into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": format!("Transcription failed: {e}")})),
+        )
+            .into_response(),
+    }
+}
+
+/// Request body for POST /api/tts
+#[derive(Deserialize)]
+pub struct TtsBody {
+    /// Text to synthesize.
+    pub text: String,
+    /// TTS provider name (optional, uses default if unset).
+    pub provider: Option<String>,
+    /// Voice ID (optional, uses default if unset).
+    pub voice: Option<String>,
+}
+
+/// POST /api/tts — synthesize text to audio via configured TTS provider.
+///
+/// Accepts JSON `{ "text": "hello", "provider": "openai", "voice": "alloy" }`.
+/// Returns audio bytes with `Content-Type: audio/opus` (or appropriate MIME).
+pub async fn handle_api_tts(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<TtsBody>,
+) -> impl IntoResponse {
+    if let Err(e) = require_auth(&state, &headers) {
+        return e.into_response();
+    }
+
+    let config = state.config.lock().clone();
+    if !config.tts.enabled {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({"error": "TTS is not enabled. Set [tts] enabled = true in config."})),
+        ).into_response();
+    }
+
+    let tts_manager = match crate::channels::tts::TtsManager::new(&config.tts) {
+        Ok(m) => m,
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": format!("Failed to initialize TTS: {e}")})),
+            )
+                .into_response();
+        }
+    };
+
+    let provider = body
+        .provider
+        .as_deref()
+        .unwrap_or(&config.tts.default_provider);
+    let voice = body.voice.as_deref().unwrap_or(&config.tts.default_voice);
+
+    match tts_manager
+        .synthesize_with_provider(&body.text, provider, voice)
+        .await
+    {
+        Ok(audio_bytes) => {
+            let content_type = match config.tts.default_format.as_str() {
+                "mp3" => "audio/mpeg",
+                "wav" => "audio/wav",
+                "aac" => "audio/aac",
+                "flac" => "audio/flac",
+                _ => "audio/opus",
+            };
+            (
+                [(axum::http::header::CONTENT_TYPE, content_type)],
+                audio_bytes,
+            )
+                .into_response()
+        }
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": format!("TTS synthesis failed: {e}")})),
         )
             .into_response(),
     }

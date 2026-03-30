@@ -56,10 +56,15 @@ pub fn conversation_messages_to_chat_messages(
 /// When `session_key` is `None`, defaults to `"api_default"`. Session history
 /// is automatically loaded on first use or when switching keys, and new
 /// messages are persisted after each turn.
+///
+/// `images` may contain data-URIs (`data:image/png;base64,...`) or file paths.
+/// They are injected as `[IMAGE:...]` markers appended to the message text,
+/// which the existing multimodal pipeline handles transparently.
 pub fn send_message(
     handle: &AgentHandle,
     message: String,
     session_key: Option<String>,
+    images: Option<Vec<String>>,
     tx: mpsc::Sender<StreamEvent>,
 ) -> Result<(), ApiError> {
     if !handle.is_initialized() {
@@ -70,6 +75,18 @@ pub fn send_message(
             message: "message must not be empty".into(),
         });
     }
+
+    // Inject image markers into the message text so the multimodal pipeline picks them up.
+    let message = if let Some(ref imgs) = images {
+        use std::fmt::Write;
+        let mut buf = message;
+        for img in imgs {
+            let _ = write!(buf, "\n[IMAGE:{img}]");
+        }
+        buf
+    } else {
+        message
+    };
 
     let effective_key = session_key.unwrap_or_else(|| "api_default".into());
     crate::api::types::validate_session_key(&effective_key)?;
@@ -164,6 +181,41 @@ pub fn send_message(
                             })
                             .await;
                         break;
+                    }
+                }
+            }
+        }
+
+        // Post-turn TTS: synthesize audio from the last assistant message if TTS is enabled.
+        let config = config_manager.get_config().await;
+        if config.tts.enabled {
+            // Extract assistant response text from the last history entry.
+            let assistant_text = {
+                let guard = agent.lock().await;
+                let history = guard.history();
+                history.last().and_then(|msg| match msg {
+                    ConversationMessage::Chat(cm) if cm.role == "assistant" => {
+                        Some(cm.content.clone())
+                    }
+                    _ => None,
+                })
+            };
+            if let Some(text) = assistant_text {
+                if let Ok(tts_manager) = crate::channels::tts::TtsManager::new(&config.tts) {
+                    match tts_manager.synthesize(&text).await {
+                        Ok(audio_bytes) => {
+                            use base64::{engine::general_purpose::STANDARD, Engine as _};
+                            let audio_b64 = STANDARD.encode(&audio_bytes);
+                            let _ = tx
+                                .send(StreamEvent::Audio {
+                                    format: config.tts.default_format.clone(),
+                                    data: audio_b64,
+                                })
+                                .await;
+                        }
+                        Err(e) => {
+                            tracing::debug!("TTS synthesis skipped for API response: {e}");
+                        }
                     }
                 }
             }
@@ -301,6 +353,7 @@ pub async fn list_sessions(
             message_count: m.message_count,
             created_at: m.created_at.to_rfc3339(),
             last_activity: m.last_activity.to_rfc3339(),
+            workspace_dir: m.workspace_dir,
         })
         .collect();
 
@@ -367,7 +420,7 @@ pub fn send_message_stream(
     sink: StreamSink<StreamEvent>,
 ) -> Result<(), ApiError> {
     let (tx, mut rx) = mpsc::channel::<StreamEvent>(64);
-    send_message(handle, message, session_key, tx)?;
+    send_message(handle, message, session_key, None, tx)?;
 
     tokio::spawn(async move {
         while let Some(event) = rx.recv().await {

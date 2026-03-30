@@ -18,7 +18,7 @@ async fn streaming_text_only_chunk_then_done() {
     let handle = build_test_handle(provider);
 
     let (tx, rx) = tokio::sync::mpsc::channel(32);
-    conversation::send_message(&handle, "hello".into(), None, tx).unwrap();
+    conversation::send_message(&handle, "hello".into(), None, None, tx).unwrap();
 
     let events = collect_events(rx).await;
 
@@ -60,7 +60,7 @@ async fn streaming_tool_call_ordering() {
     let handle = build_test_handle_with_tools(provider, vec![Box::new(EchoTool)]);
 
     let (tx, rx) = tokio::sync::mpsc::channel(32);
-    conversation::send_message(&handle, "use tool".into(), None, tx).unwrap();
+    conversation::send_message(&handle, "use tool".into(), None, None, tx).unwrap();
 
     let events = collect_events(rx).await;
 
@@ -99,7 +99,7 @@ async fn done_contains_full_aggregated_response() {
     let handle = build_test_handle(provider);
 
     let (tx, rx) = tokio::sync::mpsc::channel(32);
-    conversation::send_message(&handle, "hello".into(), None, tx).unwrap();
+    conversation::send_message(&handle, "hello".into(), None, None, tx).unwrap();
 
     let events = collect_events(rx).await;
 
@@ -137,7 +137,7 @@ async fn cancel_stops_streaming() {
     let handle = build_test_handle(provider);
 
     let (tx, rx) = tokio::sync::mpsc::channel(32);
-    conversation::send_message(&handle, "long response".into(), None, tx).unwrap();
+    conversation::send_message(&handle, "long response".into(), None, None, tx).unwrap();
 
     // Cancel immediately
     conversation::cancel_message(&handle).unwrap();
@@ -162,7 +162,7 @@ async fn dropped_receiver_no_panic() {
     let handle = build_test_handle(provider);
 
     let (tx, rx) = tokio::sync::mpsc::channel(32);
-    conversation::send_message(&handle, "hello".into(), None, tx).unwrap();
+    conversation::send_message(&handle, "hello".into(), None, None, tx).unwrap();
 
     // Drop the receiver immediately — simulates dismissed UI
     drop(rx);
@@ -185,7 +185,7 @@ async fn non_streaming_fallback_single_chunk_and_done() {
     let handle = build_test_handle(provider);
 
     let (tx, rx) = tokio::sync::mpsc::channel(32);
-    conversation::send_message(&handle, "hello".into(), None, tx).unwrap();
+    conversation::send_message(&handle, "hello".into(), None, None, tx).unwrap();
 
     let events = collect_events(rx).await;
 

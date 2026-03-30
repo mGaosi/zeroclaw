@@ -43,6 +43,14 @@ pub enum StreamEvent {
         /// Human-readable error message.
         message: String,
     },
+
+    /// Synthesized audio data for the response (TTS).
+    Audio {
+        /// Audio format (e.g., "opus", "mp3", "wav").
+        format: String,
+        /// Base64-encoded audio bytes.
+        data: String,
+    },
 }
 
 // ── T003: ApiError ────────────────────────────────────────────────
@@ -165,6 +173,8 @@ pub struct SessionInfo {
     pub created_at: String,
     /// ISO 8601 timestamp of last message.
     pub last_activity: String,
+    /// Per-session workspace directory override (if set).
+    pub workspace_dir: Option<String>,
 }
 
 /// Validate a session key: must be non-empty and contain only alphanumeric, `_`, or `-` characters.

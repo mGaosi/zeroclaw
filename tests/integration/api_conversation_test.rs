@@ -18,7 +18,7 @@ async fn send_message_text_roundtrip() {
     let handle = build_test_handle(provider);
 
     let (tx, rx) = tokio::sync::mpsc::channel(32);
-    conversation::send_message(&handle, "hi".into(), None, tx).unwrap();
+    conversation::send_message(&handle, "hi".into(), None, None, tx).unwrap();
 
     let events = collect_events(rx).await;
     assert!(!events.is_empty(), "should have received events");
@@ -53,7 +53,7 @@ async fn send_message_empty_message_errors() {
     let handle = build_test_handle(provider);
 
     let (tx, _rx) = tokio::sync::mpsc::channel(32);
-    let result = conversation::send_message(&handle, String::new(), None, tx);
+    let result = conversation::send_message(&handle, String::new(), None, None, tx);
     assert!(result.is_err());
 }
 
@@ -78,7 +78,7 @@ async fn send_message_with_tool_calls() {
     let handle = build_test_handle_with_tools(provider, vec![Box::new(EchoTool)]);
 
     let (tx, rx) = tokio::sync::mpsc::channel(32);
-    conversation::send_message(&handle, "use a tool".into(), None, tx).unwrap();
+    conversation::send_message(&handle, "use a tool".into(), None, None, tx).unwrap();
 
     let events = collect_events(rx).await;
 
